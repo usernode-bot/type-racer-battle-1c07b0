@@ -1,6 +1,17 @@
 {
   "description": "Race friends by typing sentences fast and accurately in a 2–20 player speed battle",
   "secrets": [],
+  "tests": [
+    {
+      "id": "race-scene",
+      "name": "Play screen shows the race scene",
+      "path": "/",
+      "expectSelector": "[data-race-scene]",
+      "expectText": "WPM",
+      "visual": true,
+      "impact": ["public/index.html", "public/race.js", "styles/tailwind-input.css"]
+    }
+  ],
   "governance": {
     "approvers": "invited",
     "approvals": {

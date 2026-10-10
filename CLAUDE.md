@@ -107,14 +107,19 @@ shared understanding of what this app is for)_
 This app's look. The first real version fills in the blanks; every later
 change follows it, and updates it when a request changes the look on purpose.
 
-- **Palette:** _(name the accent, any second colour and the neutrals, e.g.
-  "accent: tomato red; second: basil green; neutrals: warm greys")_
-- **Signature element:** _(the one thing on screen drawn from this app's
-  subject, which no other app would have)_
+- **Palette:** scene-first — sky blue, grass greens and asphalt grey drawn
+  from the street scene, with a near-black HUD (pills, name bubbles, typing
+  bar) and green rank accents. All scene colours are named custom properties
+  on `.race-scene` in `styles/tailwind-input.css`. Outside the scene, the
+  kit tokens (warm greys, teal accent) still rule.
+- **Signature element:** the street race scene itself — cars with
+  speech-bubble name labels racing down a four-lane road under a city
+  skyline, drawn entirely with CSS (no image assets).
 - **Type scale:** `text-title`, `text-heading`, `text-body`, `text-small`
   _(change their sizes in `tailwind.config.js` if you must, not their number)_
-- **One fixed look:** _(only for an app drawn as its own scene, such as a
-  game: which look, and why. Otherwise delete this line.)_
+- **One fixed look:** the race scene keeps its daytime look in both light
+  and dark themes — it is the game's own scene. Everything outside
+  `.race-scene` follows the viewer's Homeroom theme as usual.
 
 The kit is in `styles/tailwind-input.css`: colour tokens with a light and
 a dark value (named in `tailwind.config.js`), and a few components
