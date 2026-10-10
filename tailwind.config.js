@@ -55,6 +55,21 @@ module.exports = {
         danger: token('danger'),
         'on-danger': token('on-danger'),
         focus: token('focus'), // the keyboard focus ring
+        track: token('track'), // the lane tarmac
+        'lane-mark': token('lane-mark'), // the dashed lines between lanes
+        'car-1': token('car-1'), // racing liveries, handed out by lane
+        'car-2': token('car-2'),
+        'car-3': token('car-3'),
+        'car-4': token('car-4'),
+        'car-5': token('car-5'),
+        'car-6': token('car-6'),
+      },
+      // The passage, the clock and every speed and accuracy figure are set
+      // in the monospace face, the typing test's own vernacular; everything
+      // else is the system sans.
+      fontFamily: {
+        sans: ['system-ui', '-apple-system', '"Segoe UI"', 'Roboto', 'sans-serif'],
+        mono: ['ui-monospace', '"SF Mono"', 'Menlo', 'Consolas', 'monospace'],
       },
       // The type scale: four sizes, and nothing in between.
       fontSize: {
