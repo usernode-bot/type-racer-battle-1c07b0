@@ -199,7 +199,7 @@
   function renderError(retry) {
     clear(app);
     app.appendChild(headerNode());
-    const box = el('section', 'state-error');
+    const box = el('section', 'state-error rounded-xl border border-line bg-surface');
     box.appendChild(text('p', 'text-body font-medium', 'Could not load the race lobby.'));
     box.appendChild(text('p', 'text-small text-muted', 'Check your connection and try again.'));
     const btn = el('button', 'btn-primary mt-1 min-w-24');
@@ -242,7 +242,9 @@
         total: 0,
       }));
     } else {
-      const empty = el('div', 'state-empty');
+      // One full-width open lane, same structure as the populated grid, with
+      // the note left-aligned under it on the card's own padding.
+      const empty = el('div', 'flex flex-col gap-3');
       empty.appendChild(trackNode([], { openLane: true }));
       empty.appendChild(text('p', 'text-small text-muted',
         'No one is waiting yet. Join and the next race opens.'));
@@ -295,8 +297,11 @@
     const statsWrap = el('section');
     statsWrap.appendChild(text('h2', 'section-label', 'Your stats'));
     const cells = el('div', 'stats');
-    cells.appendChild(statCell(String(stats.bestWpm), 'best wpm', true));
-    cells.appendChild(statCell(stats.races ? stats.avgAccuracy + '%' : '0%', 'accuracy', true));
+    // No race yet: '–' for the speed figures (no data, not a failing score);
+    // the win count still reads 0 and wins of 0.
+    const raced = stats.races > 0;
+    cells.appendChild(statCell(raced ? String(stats.bestWpm) : '–', 'best wpm', true, !raced));
+    cells.appendChild(statCell(raced ? stats.avgAccuracy + '%' : '–', 'accuracy', true, !raced));
     cells.appendChild(statCell(String(stats.wins), 'wins of ' + stats.races, false));
     statsWrap.appendChild(cells);
     view.appendChild(statsWrap);
@@ -335,9 +340,10 @@
     view.appendChild(listWrap);
   }
 
-  function statCell(value, label, mono) {
+  function statCell(value, label, mono, muted) {
     const cell = el('div', 'stat');
     const b = el('b', mono ? 'font-mono' : '');
+    if (muted) b.classList.add('text-muted');
     b.textContent = value;
     cell.appendChild(b);
     cell.appendChild(text('span', 'text-small text-muted', label));
