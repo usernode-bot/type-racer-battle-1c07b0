@@ -4,7 +4,7 @@
   "governance": {
     "approvers": "invited",
     "approvals": {
-      "atLeast": 3
+      "atLeast": 2
     }
   }
 }
