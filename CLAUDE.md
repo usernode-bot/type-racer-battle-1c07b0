@@ -136,6 +136,10 @@ Components beyond the starter kit, all in the kit file: `track`, `lane`,
 `lane-you`, `car`, `passage` with `ch-ok` / `ch-bad` / `ch-rest` / `caret`,
 `badge` / `badge-win`, `stats` / `stat`, and `field-error`.
 
+The street race scene from this branch (`.race-scene` styles in
+`styles/tailwind-input.css`, driver in `public/race.js`) is kept but not yet
+mounted in `public/index.html`; it keeps a fixed daytime look in both themes.
+
 The kit is in `styles/tailwind-input.css`: colour tokens with a light and
 a dark value (named in `tailwind.config.js`), and a few components
 (`btn-primary`, `btn-secondary`, `field`, `list` and `list-row`,

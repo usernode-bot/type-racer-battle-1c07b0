@@ -247,3 +247,299 @@
     @apply block text-heading font-semibold;
   }
 }
+
+
+/* ── Race scene (fixed look) ──────────────────────────────────────────────
+   The play screen's street scene, drawn entirely with CSS. It is this
+   app's own scene, so it keeps its daytime look in BOTH themes (CLAUDE.md
+   "## Design"); everything outside .race-scene keeps the kit tokens.
+   Colours live only in the custom properties below. Bands are percent
+   heights, so the scene scales with its container; cars move by
+   transform only (race.js). */
+.race-scene {
+  --scene-sky: #b9e2f2;
+  --scene-skyline: #8fc6de;
+  --scene-tree: #57a54c;
+  --scene-tree-dark: #478c3e;
+  --scene-concrete: #c6cbd0;
+  --scene-concrete-edge: #dde1e4;
+  --scene-post: #a9b0b6;
+  --scene-stripe: #d94f3d;
+  --scene-stripe-lite: #f2efe8;
+  --scene-road: #7e8489;
+  --scene-lane: #eef1f3;
+  --scene-hud: rgba(24, 26, 30, 0.88);
+  --scene-hud-sub: #c9ced4;
+  --scene-badge: #4caf50;
+  --scene-bar: #17191d;
+  --scene-typed: #8a9096;
+  --scene-todo: #ffffff;
+  --scene-caret: #4aa3e8;
+  --scene-dial: #15171b;
+  --scene-dial-rim: #2b3036;
+  --scene-arc-blue: #3f8fd8;
+  --scene-arc-red: #d84f3f;
+  --scene-needle: #dbe7f3;
+  --scene-lamp: #3a4046;
+  --scene-lamp-red: #e05252;
+  --scene-lamp-amber: #e8b53a;
+  --scene-lamp-green: #22c55e;
+  --scene-car-1: #2fbfae;
+  --scene-car-2: #43a047;
+  --scene-car-3: #3f9e44;
+  --scene-car-4: #a86fd1;
+  --scene-car-5: #e0a43a;
+  --scene-car-6: #5a8fd8;
+
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 380px;
+  max-height: 560px;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+/* Sky band, with skyline and treeline on its lower edge. */
+.scene-sky { position: absolute; inset: 0 0 64% 0; background: var(--scene-sky); }
+.scene-cloud { position: absolute; background: #fff; border-radius: 999px; height: 14px; opacity: 0.92; }
+.scene-cloud::after {
+  content: ""; position: absolute; left: 22%; top: -45%;
+  width: 56%; height: 95%; background: #fff; border-radius: 999px;
+}
+.scene-cloud-1 { left: 6%; top: 16%; width: 74px; }
+.scene-cloud-2 { left: 40%; top: 9%; width: 96px; }
+.scene-cloud-3 { right: 9%; top: 19%; width: 62px; }
+.scene-skyline {
+  position: absolute; left: 0; right: 0; bottom: 22%; height: 56%;
+  display: flex; align-items: flex-end; gap: 6px; padding: 0 5%; opacity: 0.5;
+}
+.scene-skyline i { flex: 1; background: var(--scene-skyline); border-radius: 2px 2px 0 0; }
+.scene-skyline i:nth-child(1) { height: 38%; }
+.scene-skyline i:nth-child(2) { height: 68%; }
+.scene-skyline i:nth-child(3) { height: 52%; }
+.scene-skyline i:nth-child(4) { height: 84%; }
+.scene-skyline i:nth-child(5) { height: 58%; }
+.scene-skyline i:nth-child(6) { height: 74%; }
+.scene-skyline i:nth-child(7) { height: 44%; }
+.scene-skyline i:nth-child(8) { height: 64%; }
+.scene-treeline {
+  position: absolute; left: -2%; right: -2%; bottom: -2px; height: 28%;
+  display: flex; align-items: flex-end;
+}
+.scene-treeline i { flex: 1; height: 72%; background: var(--scene-tree); border-radius: 50% 50% 0 0; margin: 0 -8px; }
+.scene-treeline i:nth-child(2n) { height: 100%; background: var(--scene-tree-dark); }
+
+/* HUD pills over the sky: WPM top left, countdown top right. */
+.scene-pill {
+  position: absolute; top: 12px; display: flex; align-items: baseline; gap: 6px;
+  background: var(--scene-hud); color: #fff; border-radius: 12px;
+  padding: 8px 16px; font-size: 21px; font-weight: 700; line-height: 1; z-index: 3;
+}
+.scene-pill small { font-size: 12px; font-weight: 600; color: var(--scene-hud-sub); }
+.scene-pill-wpm { left: 12px; }
+.scene-pill-timer { right: 12px; font-variant-numeric: tabular-nums; }
+
+/* Concrete barrier with posts, then the red-and-white stripe. The signal
+   hangs from this band up into the sky and marks the race state. */
+.scene-barrier { position: absolute; left: 0; right: 0; top: 36%; height: 13%; }
+.scene-wall {
+  position: absolute; left: 0; right: 0; top: 0; height: 60%;
+  background: var(--scene-concrete); border-top: 3px solid var(--scene-concrete-edge); display: flex;
+}
+.scene-wall i { flex: 1; border-right: 2px solid var(--scene-post); }
+.scene-stripes {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 40%;
+  background: repeating-linear-gradient(90deg, var(--scene-stripe) 0 24px, var(--scene-stripe-lite) 24px 48px);
+  border-top: 2px solid #b9412f;
+}
+.scene-signal {
+  position: absolute; left: 18px; top: -64px; width: 26px; padding: 3px 0;
+  display: flex; flex-direction: column; gap: 3px; align-items: center;
+  background: var(--scene-hud); border-radius: 6px; z-index: 3;
+}
+.scene-signal i { width: 14px; height: 14px; border-radius: 50%; background: var(--scene-lamp); }
+.scene-signal::after {
+  content: ""; position: absolute; top: 100%; left: 50%;
+  width: 5px; height: 24px; background: #4a5158; transform: translateX(-50%);
+}
+.race-scene[data-state="ready"] .scene-signal i:nth-child(1) { background: var(--scene-lamp-red); }
+.race-scene[data-state="counting"] .scene-signal i:nth-child(2) { background: var(--scene-lamp-amber); }
+.race-scene[data-state="running"] .scene-signal i:nth-child(3),
+.race-scene[data-state="finished"] .scene-signal i:nth-child(3) { background: var(--scene-lamp-green); }
+
+/* Road band: four lanes with dashed markers. Cars are appended by race.js. */
+.scene-road { position: absolute; left: 0; right: 0; top: 49%; bottom: 0; background: var(--scene-road); }
+.scene-dash {
+  position: absolute; left: 0; right: 0; height: 3px;
+  background: repeating-linear-gradient(90deg, var(--scene-lane) 0 30px, transparent 30px 78px);
+}
+.scene-dash-1 { top: 18%; }
+.scene-dash-2 { top: 36%; }
+.scene-dash-3 { top: 54%; }
+.scene-dash-4 { top: 72%; }
+
+.scene-car { position: absolute; width: 96px; height: 38px; will-change: transform; }
+.scene-car[data-colour="1"] { --car: var(--scene-car-1); }
+.scene-car[data-colour="2"] { --car: var(--scene-car-2); }
+.scene-car[data-colour="3"] { --car: var(--scene-car-3); }
+.scene-car[data-colour="4"] { --car: var(--scene-car-4); }
+.scene-car[data-colour="5"] { --car: var(--scene-car-5); }
+.scene-car[data-colour="6"] { --car: var(--scene-car-6); }
+.car-body { position: absolute; left: 0; right: 0; bottom: 6px; height: 22px; border-radius: 10px 14px 4px 4px; background: var(--car); }
+.car-cabin { position: absolute; left: 24px; right: 32px; top: 0; height: 16px; border-radius: 9px 12px 0 0; background: #22323c; }
+.car-wheel { position: absolute; bottom: 0; width: 14px; height: 14px; border-radius: 50%; background: #1c2126; border: 3px solid #39414a; box-sizing: border-box; }
+.car-wheel-f { left: 13px; }
+.car-wheel-r { right: 15px; }
+
+/* Name bubble: dark label beside the car, pointer toward it. Flips to the
+   car's right side near the scene's left edge so it is never clipped. */
+.scene-bubble {
+  position: absolute; right: calc(100% - 12px); top: -4px;
+  background: var(--scene-hud); color: #fff; font-size: 12px; font-style: italic;
+  padding: 4px 12px; border-radius: 7px; white-space: nowrap;
+}
+.scene-bubble::after {
+  content: ""; position: absolute; right: -5px; top: 50%; margin-top: -5px;
+  border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+  border-right: 0; border-left: 5px solid var(--scene-hud);
+}
+.scene-bubble-right { right: auto; left: calc(100% - 12px); }
+.scene-bubble-right::after {
+  right: auto; left: -5px; border-left: 0;
+  border-right: 5px solid var(--scene-hud);
+}
+
+/* Rank badge: green tag on the viewer's car; flips like the bubble. */
+.scene-rank {
+  position: absolute; right: calc(100% + 10px); bottom: -6px;
+  background: var(--scene-badge); color: #fff; font-weight: 800;
+  font-size: 16px; padding: 7px 13px; border-radius: 9px;
+}
+.scene-rank::after {
+  content: ""; position: absolute; right: -7px; top: 50%; margin-top: -7px;
+  border-top: 7px solid transparent; border-bottom: 7px solid transparent;
+  border-right: 0; border-left: 7px solid var(--scene-badge);
+}
+.scene-rank-right { right: auto; left: calc(100% + 10px); }
+.scene-rank-right::after {
+  right: auto; left: -7px; border-left: 0;
+  border-right: 7px solid var(--scene-badge);
+}
+
+/* Speedometer overlay: dark dial, needle driven by live WPM. */
+.scene-speedo {
+  position: absolute; left: 12px; bottom: 12px; width: 104px; height: 104px;
+  border-radius: 50%; background: var(--scene-dial); border: 4px solid var(--scene-dial-rim); z-index: 4;
+}
+.scene-speedo-arc {
+  position: absolute; inset: 8px; border-radius: 50%;
+  background: conic-gradient(from -130deg, var(--scene-arc-blue) 0 55deg, var(--scene-arc-red) 55deg 75deg, transparent 75deg 360deg);
+  -webkit-mask: radial-gradient(circle, transparent 60%, #000 61%);
+  mask: radial-gradient(circle, transparent 60%, #000 61%);
+}
+.scene-speedo-needle {
+  position: absolute; left: 50%; bottom: 50%; width: 4px; height: 36px;
+  background: var(--scene-needle); border-radius: 2px;
+  transform-origin: 50% 100%; transform: translateX(-50%) rotate(-130deg);
+}
+.scene-speedo-hub { position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px; border-radius: 50%; background: #8b939c; }
+.scene-speedo-label { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; color: #98a0a8; font-size: 9px; }
+
+/* Typing bar overlay: the sentence in monospace, typed dim, ahead white,
+   caret between. A hidden input covers the bar so taps focus it (phones
+   need a real input to open the keyboard). */
+.typebar {
+  position: absolute; left: 142px; right: 12px; bottom: 10px; height: 48px;
+  background: var(--scene-bar); border-radius: 10px; display: flex; align-items: center;
+  padding: 0 16px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 24px; overflow: hidden; cursor: text; z-index: 4;
+}
+.typebar:focus-within { outline: 2px solid var(--scene-caret); outline-offset: 2px; }
+.typebar-text { white-space: pre; will-change: transform; }
+.typebar-typed { color: var(--scene-typed); }
+.typebar-todo { color: var(--scene-todo); }
+.typebar-caret { display: inline-block; width: 2px; height: 30px; background: var(--scene-caret); margin: 0 2px; }
+.typebar-caret.typebar-caret-idle { animation: typebar-blink 1s steps(1) infinite; }
+@keyframes typebar-blink { 50% { opacity: 0; } }
+.typebar-wrong { animation: typebar-shake 0.15s; }
+@keyframes typebar-shake { 50% { transform: translateX(3px); } }
+
+.race-input {
+  position: absolute; inset: 0; width: 100%; opacity: 0; border: 0;
+  background: transparent; color: transparent; font-size: 16px; /* stops iOS zoom-on-focus */
+  cursor: text;
+}
+.race-input:focus { outline: none; }
+
+/* Start hint, count-in number and the finish card. */
+.scene-start-hint {
+  position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%);
+  background: var(--scene-hud); color: #fff; padding: 10px 18px;
+  border-radius: 12px; font-size: 16px; font-weight: 600; z-index: 5;
+}
+.scene-count {
+  position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%);
+  color: #fff; font-size: 64px; font-weight: 800;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); z-index: 5;
+}
+.scene-result {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  background: var(--scene-hud); color: #fff; border-radius: 12px;
+  padding: 16px 22px; text-align: center; z-index: 6;
+}
+.scene-result-title { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+.scene-result-sub { font-size: 13px; color: var(--scene-hud-sub); margin: 0 0 12px; }
+.scene-result button {
+  background: var(--scene-badge); color: #fff; border: 0; border-radius: 8px;
+  padding: 10px 16px; font-size: 14px; font-weight: 600;
+  min-height: 44px; cursor: pointer;
+}
+.scene-result button:hover { filter: brightness(0.95); }
+
+@media (prefers-reduced-motion: reduce) {
+  .typebar-caret.typebar-caret-idle { animation: none; }
+}
+
+/* Phones: same bands and lanes, smaller chrome. */
+@media (max-width: 640px) {
+  .race-scene { aspect-ratio: 4 / 3; min-height: 320px; }
+  .scene-cloud { height: 11px; }
+  .scene-cloud-1 { width: 52px; }
+  .scene-cloud-2 { width: 64px; }
+  .scene-cloud-3 { width: 44px; }
+  .scene-skyline { gap: 4px; }
+  .scene-treeline i { margin: 0 -6px; }
+  .scene-pill { top: 10px; padding: 5px 11px; font-size: 14px; border-radius: 10px; }
+  .scene-pill small { font-size: 9px; }
+  .scene-wall { border-top-width: 2px; }
+  .scene-stripes {
+    background: repeating-linear-gradient(90deg, var(--scene-stripe) 0 17px, var(--scene-stripe-lite) 17px 34px);
+  }
+  .scene-signal { left: 12px; top: -48px; width: 20px; padding: 2px 0; gap: 2px; border-radius: 5px; }
+  .scene-signal i { width: 10px; height: 10px; }
+  .scene-signal::after { width: 4px; height: 18px; }
+  .scene-dash {
+    height: 2px;
+    background: repeating-linear-gradient(90deg, var(--scene-lane) 0 20px, transparent 20px 52px);
+  }
+  .scene-car { width: 66px; height: 27px; }
+  .car-body { bottom: 4px; height: 15px; border-radius: 7px 10px 3px 3px; }
+  .car-cabin { left: 16px; right: 22px; top: 0; height: 11px; border-radius: 6px 8px 0 0; }
+  .car-wheel { width: 10px; height: 10px; border-width: 2px; }
+  .car-wheel-f { left: 9px; }
+  .car-wheel-r { right: 11px; }
+  .scene-bubble { font-size: 10px; padding: 3px 9px; top: -2px; }
+  .scene-rank { font-size: 12px; padding: 5px 9px; bottom: -4px; }
+  .scene-speedo { left: 8px; bottom: 8px; width: 76px; height: 76px; border-width: 3px; }
+  .scene-speedo-arc { inset: 5px; }
+  .scene-speedo-needle { width: 3px; height: 26px; }
+  .scene-speedo-hub { width: 9px; height: 9px; margin: -4.5px; }
+  .scene-speedo-label { bottom: 8px; font-size: 8px; }
+  .typebar { left: 104px; right: 8px; bottom: 8px; height: 40px; font-size: 15px; padding: 0 12px; }
+  .typebar-caret { height: 22px; }
+  .scene-start-hint { font-size: 14px; padding: 8px 14px; }
+  .scene-count { font-size: 44px; }
+}
