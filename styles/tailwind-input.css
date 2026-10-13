@@ -18,41 +18,54 @@
  * bg-accent with text-on-accent, ...). :root is the light look, and .dark,
  * which the theme script in public/index.html sets on <html>, the dark one.
  *
- * Re-theme the app HERE: change the values, keep the names. The defaults
- * (warm greys, one teal accent) are a quiet starting point, not a look.
- * Keep every text pair at 4.5:1 or more in both looks: fg and muted on
- * ground, surface and raised; accent and danger on ground and surface;
- * on-accent on accent; on-danger on danger.
- *
- * Adopting the native UI kit later? Point its --un-accent and
- * --un-accent-contrast at the accent and on-accent tokens.
+ * Type Racer Battle's look: cool tarmac greys, a start-light green "go"
+ * action colour, red kept for mistakes only, and six racing liveries for
+ * the cars on the track. Keep every text pair at 4.5:1 or more in both
+ * looks: fg and muted on ground, surface and raised; accent and danger on
+ * ground and surface; on-accent on accent; on-danger on danger.
  */
 @layer base {
   :root {
-    --ground: 250 250 249;    /* the page */
+    --ground: 244 245 247;    /* the page */
     --surface: 255 255 255;   /* lists, cards, fields */
-    --raised: 245 245 244;    /* hovers, badges */
-    --fg: 28 25 23;           /* text */
-    --muted: 87 83 78;        /* secondary text */
-    --line: 231 229 228;      /* borders, dividers, skeletons */
-    --accent: 15 118 110;     /* the one accent */
+    --raised: 236 238 241;    /* hovers, badges */
+    --fg: 23 25 30;           /* text */
+    --muted: 82 88 99;        /* secondary text */
+    --line: 218 222 228;      /* borders, dividers, skeletons */
+    --accent: 21 128 61;      /* start-light green: the "go" of a race */
     --on-accent: 255 255 255; /* text on the accent */
-    --danger: 185 28 28;
+    --danger: 185 28 28;      /* wrong letters, and nothing else */
     --on-danger: 255 255 255;
-    --focus: 13 148 136;      /* the keyboard focus ring */
+    --focus: 21 128 61;       /* the keyboard focus ring */
+    --track: 232 234 238;     /* the lane tarmac */
+    --lane-mark: 255 255 255; /* the dashed lines between lanes */
+    --car-1: 220 38 38;       /* racing liveries, handed out by lane */
+    --car-2: 37 99 235;
+    --car-3: 217 119 6;
+    --car-4: 124 58 237;
+    --car-5: 8 145 178;
+    --car-6: 219 39 119;
   }
   .dark {
-    --ground: 12 10 9;
-    --surface: 28 25 23;
-    --raised: 41 37 36;
-    --fg: 245 245 244;
-    --muted: 168 162 158;
-    --line: 68 64 60;
-    --accent: 45 212 191;
-    --on-accent: 4 47 46;
+    --ground: 15 17 21;
+    --surface: 26 29 35;
+    --raised: 36 40 48;
+    --fg: 237 239 242;
+    --muted: 160 167 179;
+    --line: 52 57 66;
+    --accent: 74 222 128;
+    --on-accent: 5 46 22;
     --danger: 248 113 113;
     --on-danger: 69 10 10;
-    --focus: 94 234 212;
+    --focus: 74 222 128;
+    --track: 33 37 44;
+    --lane-mark: 70 76 87;
+    --car-1: 248 113 113;
+    --car-2: 96 165 250;
+    --car-3: 251 191 36;
+    --car-4: 167 139 250;
+    --car-5: 34 211 238;
+    --car-6: 244 114 182;
   }
   /* el.hidden = true hides an element even when a class gives it a display
      (flex, the components below). */
@@ -62,10 +75,10 @@
 }
 
 /* ── Components ───────────────────────────────────────────────────────────
- * A small starting kit on the tokens. Use these rather than restyling the
- * same thing by hand, add to them sparingly, and change a component here
- * rather than one copy of it. Type: text-title, text-heading, text-body and
- * text-small (tailwind.config.js), nothing in between.
+ * A small kit on the tokens. Use these rather than restyling the same thing
+ * by hand, add to them sparingly, and change a component here rather than
+ * one copy of it. Type: text-title, text-heading, text-body and text-small
+ * (tailwind.config.js), nothing in between.
  */
 @layer components {
   /* Buttons: one primary per screen, the rest secondary. At least 44 px
@@ -89,6 +102,10 @@
   .field {
     @apply block min-h-11 w-full rounded-lg border border-line bg-surface px-3 py-2 text-body text-fg
       placeholder:text-muted/60 focus:outline-none focus:ring-2 focus:ring-focus;
+  }
+  /* The typing field while a mistake stands: red ring, red hint below. */
+  .field-error {
+    @apply border-danger ring-2 ring-danger/25;
   }
 
   /* A grouped list: <ul class="list"> of <li class="list-row">. The usual
@@ -125,7 +142,112 @@
   .state-error {
     @apply flex flex-col items-center gap-2 px-4 py-8 text-center;
   }
+
+  /* ── The race track ──
+   * The signature element: horizontal lanes of tarmac separated by dashed
+   * lane markings, a start line on the left and a checkered finish on the
+   * right. The same markup is the lobby's starting grid and the race's live
+   * view. Structure:
+   *   <div class="track">
+   *     <div class="lane [lane-you] [lane-thin]">
+   *       <span class="lane-label">name</span>
+   *       <div class="lane-run"><svg class="car" style="left:…">…</svg></div>
+   *     </div> …
+   *   </div>
+   */
+  .track {
+    @apply flex flex-col;
+  }
+  .lane {
+    @apply flex items-center gap-2 h-9;
+  }
+  .lane-thin {
+    @apply h-6; /* from nine racers up, so twenty lanes still fit */
+  }
+  .lane-label {
+    @apply w-[92px] flex-none truncate text-small leading-5;
+  }
+  .lane-you .lane-label {
+    @apply font-semibold;
+  }
+  .lane-run {
+    @apply relative flex-1 h-full bg-track;
+    border-left: 2px solid rgb(var(--muted));
+  }
+  .lane:first-child .lane-run {
+    border-top-right-radius: 8px;
+  }
+  .lane:last-child .lane-run {
+    border-bottom-right-radius: 8px;
+  }
+  .lane + .lane .lane-run {
+    border-top: 2px dashed rgb(var(--lane-mark));
+  }
+  /* The checkered finish line, eight squares wide, at the right end. */
+  .lane-run::after {
+    content: "";
+    @apply absolute right-0 top-0 bottom-0 w-2;
+    background: repeating-conic-gradient(rgb(var(--fg)) 0 25%, rgb(var(--surface)) 0 50%) 0 0 / 8px 8px;
+  }
+  .lane-you .lane-run {
+    @apply bg-accent/15;
+  }
+  /* The car: a small side-view drawn in its livery (text-car-1 … text-car-6
+     on the svg), moved along the lane by an inline `left`, transitioning
+     between polls. */
+  .car {
+    @apply absolute top-1/2 h-6 w-[30px] -mt-3 motion-safe:transition-[left] motion-safe:duration-[900ms] motion-safe:ease-linear;
+    left: 4px;
+  }
+  .car .body { fill: currentColor; }
+  .car .glass { fill: rgb(var(--surface)); }
+  .car .wheel {
+    fill: rgb(var(--fg));
+    stroke: rgb(var(--track));
+    stroke-width: 1.5;
+  }
+
+  /* ── The passage ──
+   * Large monospace, one slot per character: typed-right letters dark,
+   * wrong letters red and underlined, the rest grey, a green caret where
+   * you are. */
+  .passage {
+    @apply font-mono text-[20px] leading-[34px] break-words;
+  }
+  .passage .ch-ok { @apply text-fg; }
+  .passage .ch-bad {
+    @apply text-danger bg-danger/10 underline decoration-danger underline-offset-4;
+  }
+  .passage .ch-rest { @apply text-muted; }
+  .passage .caret {
+    border-left: 2px solid rgb(var(--accent));
+    margin-left: -1px;
+  }
+
+  /* Round place badges: solid green for a win, grey otherwise, a stopwatch
+     for practice. */
+  .badge {
+    @apply flex h-10 w-10 flex-none items-center justify-center rounded-full bg-raised text-small font-semibold font-mono;
+  }
+  .badge-win {
+    @apply bg-accent text-on-accent;
+  }
+
+  /* The three stat cells under the lobby. */
+  .stats {
+    @apply grid grid-cols-3 overflow-hidden rounded-xl border border-line bg-surface;
+  }
+  .stat {
+    @apply px-3 py-3 min-w-0;
+  }
+  .stat + .stat {
+    @apply border-l border-line;
+  }
+  .stat b {
+    @apply block text-heading font-semibold;
+  }
 }
+
 
 /* ── Race scene (fixed look) ──────────────────────────────────────────────
    The play screen's street scene, drawn entirely with CSS. It is this

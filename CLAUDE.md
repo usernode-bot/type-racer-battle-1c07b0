@@ -97,29 +97,48 @@ tables you've marked private), etc.
 
 ## About Type Racer Battle
 
-Race friends by typing sentences fast and accurately in a 2–20 player speed battle
-
-_(add a sentence or two more of product context here so Claude Code has a
-shared understanding of what this app is for)_
+Race friends by typing sentences fast and accurately in a 2–20 player speed
+battle. One screen's job: get into a race and finish it. Races live on the
+server in the `races` / `race_entries` tables; clients poll about once a
+second, no websocket. Passages ship with the app in `lib/sentences.js`, two
+short everyday sentences per race, so no passage or custom-text feature
+should ever grow outside that pool without a reason.
 
 ## Design
 
-This app's look. The first real version fills in the blanks; every later
-change follows it, and updates it when a request changes the look on purpose.
+This app's look. The first real version set it; every later change follows
+it, and updates it when a request changes the look on purpose.
 
-- **Palette:** scene-first — sky blue, grass greens and asphalt grey drawn
-  from the street scene, with a near-black HUD (pills, name bubbles, typing
-  bar) and green rank accents. All scene colours are named custom properties
-  on `.race-scene` in `styles/tailwind-input.css`. Outside the scene, the
-  kit tokens (warm greys, teal accent) still rule.
-- **Signature element:** the street race scene itself — cars with
-  speech-bubble name labels racing down a four-lane road under a city
-  skyline, drawn entirely with CSS (no image assets).
-- **Type scale:** `text-title`, `text-heading`, `text-body`, `text-small`
-  _(change their sizes in `tailwind.config.js` if you must, not their number)_
-- **One fixed look:** the race scene keeps its daytime look in both light
-  and dark themes — it is the game's own scene. Everything outside
-  `.race-scene` follows the viewer's Homeroom theme as usual.
+- **Palette:** cool tarmac greys for everything neutral (ground, surface,
+  raised, text, muted, line); one action colour, start-light green
+  (`--accent`), used only for the primary button, your own lane's tint, the
+  winner badge and the typing caret; red (`--danger`) only for wrong letters
+  and their hint; two track colours (`--track` tarmac, `--lane-mark` dashed
+  lines); and six racing liveries (`--car-1` red … `--car-6` pink) handed
+  out by lane and repeating from lane 7. Green stays out of the liveries so
+  "go" keeps meaning go.
+- **Signature element:** the race track — horizontal lanes of grey tarmac
+  separated by dashed lane markings, a start line on the left, a checkered
+  finish line on the right, a small side-view car in each racer's livery.
+  The same track is the lobby's starting grid and the race's live view, so
+  joining literally puts your car on the line. The car's `left` position is
+  exactly how far the racer has typed correctly.
+- **Type:** system sans for everything except the typing vernacular — the
+  passage, the clock and every speed and accuracy figure are monospace
+  (`font-mono`), so each letter has its own slot and the figures line up.
+  Scale: `text-title`, `text-heading`, `text-body`, `text-small`.
+- **Both looks:** the neutrals, accent and liveries all carry a light and a
+  dark value in `styles/tailwind-input.css`; the app follows the viewer's
+  Homeroom theme, it is not a fixed-look game scene.
+
+Components beyond the starter kit, all in the kit file: `track`, `lane`,
+`lane-label`, `lane-run`, `lane-thin` (24 px lanes from nine racers),
+`lane-you`, `car`, `passage` with `ch-ok` / `ch-bad` / `ch-rest` / `caret`,
+`badge` / `badge-win`, `stats` / `stat`, and `field-error`.
+
+The street race scene from this branch (`.race-scene` styles in
+`styles/tailwind-input.css`, driver in `public/race.js`) is kept but not yet
+mounted in `public/index.html`; it keeps a fixed daytime look in both themes.
 
 The kit is in `styles/tailwind-input.css`: colour tokens with a light and
 a dark value (named in `tailwind.config.js`), and a few components
@@ -144,6 +163,17 @@ Re-theme by changing the token values there, keeping every text pair at
 
 ## App-specific conventions
 
-_(optional — e.g. "all currency values stored as integer cents, not
-floats"; "the `posts` table is append-only"; "avoid adding new
-dependencies"; etc.)_
+- Demo rows (the staging `?demo=1` world) carry the viewer's id in
+  `races.demo_owner`. Real queries must always filter `demo_owner IS NULL`;
+  the demo's own queries filter `demo_owner = <viewer>`. Nothing else reads
+  `demo_owner`.
+- Passage characters stay within `[A-Za-z ,.]` — single spaces, a full stop
+  at the end, no quotes or apostrophes that phone keyboards would curl.
+- All race time decisions use `req.now`, written to the database as query
+  parameters, never SQL `NOW()`.
+- One open lobby at a time, enforced by the `races_one_lobby` partial unique
+  index on `COALESCE(demo_owner, '') WHERE status = 'lobby'`; "join" reuses
+  it or races to create it. Any racer in it can start it once two are in.
+- The typing field is word by word (`public/typing.js`): the field holds the
+  current word, clears when the word and its space are right, and the car's
+  position is exactly how far the racer has typed correctly.
