@@ -39,5 +39,37 @@
     return { correct, wrong, wordComplete, done };
   }
 
-  return { typingState };
+  // The passage strip's three pieces, each passage character appearing
+  // exactly once: the typed-right prefix, the wrong slice (empty with no
+  // mistake) and the remainder. `at` is how far into the passage you are,
+  // counting committed words plus the correct part of the current word.
+  function stripParts(passage, committed, input) {
+    const st = typingState(passage, committed, input);
+    const len = String(passage).length;
+    const at = Math.min(len, committed + st.correct);
+    const ok = String(passage).slice(0, at);
+    const bad = st.wrong
+      ? String(passage).slice(at, Math.min(len, at + (st.wrong.end - st.wrong.start)))
+      : '';
+    const rest = String(passage).slice(at + bad.length);
+    return { ok, bad, rest, at };
+  }
+
+  // The speedometer needle's angle, SVG clockwise from +x: 150° at 0, 270°
+  // at 50, 390° at 100 wpm and above. The dial reads 0 to 10, times ten.
+  function dialAngle(wpm) {
+    const n = Number(wpm);
+    if (!isFinite(n)) return 150;
+    return 150 + 24 * Math.max(0, Math.min(10, n / 10));
+  }
+
+  // A race clock: "m:ss.t", floored to tenths, never negative.
+  function raceClock(ms) {
+    const n = isFinite(Number(ms)) ? Math.max(0, Number(ms)) : 0;
+    const tenths = Math.floor(n / 100);
+    const s = Math.floor(tenths / 10);
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + '.' + (tenths % 10);
+  }
+
+  return { typingState, stripParts, dialAngle, raceClock };
 });

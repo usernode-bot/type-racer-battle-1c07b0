@@ -26,6 +26,13 @@
     return node;
   }
 
+  // The race view is wider than the lobby and the loading screen: whole
+  // literals so Tailwind's extractor keeps both.
+  function setWide(on) {
+    app.classList.toggle('max-w-3xl', on);
+    app.classList.toggle('max-w-lg', !on);
+  }
+
   const IS_DEMO = new URLSearchParams(location.search).get('demo') === '1';
   const PAGE_TOKEN = new URLSearchParams(location.search).get('token');
   function apiUrl(path) {
@@ -56,24 +63,50 @@
     } catch (_) { /* the toast is a nicety, never a failure */ }
   }
 
-  // The SVG car, drawn once in its lane's livery (the colour comes from a
-  // whole-literal class on the svg, so Tailwind's extractor sees it).
+  // The SVG car: a side view drawn in its lane's livery (the colour comes
+  // from a whole-literal class on the wrapper span, so Tailwind's extractor
+  // sees it).
   const CAR_SVG =
-    '<svg viewBox="0 0 30 24" aria-hidden="true"><path class="body" d="M2 17v-4l4-1.5L10 7h8l5 4.5 4 1V17z"/><path class="glass" d="M11 9h6l3 3H9z"/><circle class="wheel" cx="8" cy="17.5" r="2.5"/><circle class="wheel" cx="22" cy="17.5" r="2.5"/></svg>';
+    '<svg viewBox="0 0 60 24" aria-hidden="true"><path class="body" d="M3 18v-5l6-2 8-6h20l9 6 9 2v5z"/><path class="glass" d="M19 7h16l6 5H14z"/><circle class="wheel" cx="15" cy="18.5" r="4.5"/><circle class="wheel" cx="46" cy="18.5" r="4.5"/></svg>';
   // Whole literals so the compiler keeps them; chosen by lane % 6.
   const CAR_CLASSES = ['text-car-1', 'text-car-2', 'text-car-3', 'text-car-4', 'text-car-5', 'text-car-6'];
+
+  // The scene backdrop: one static stretch of city — skyline, tree band,
+  // grey wall with posts — stretched over the backdrop's box.
+  const SCENE_SVG =
+    '<svg class="scene-svg" viewBox="0 0 768 132" preserveAspectRatio="none" aria-hidden="true">' +
+    '<rect class="bld" x="20" y="40" width="40" height="70"/><rect class="bld" x="70" y="20" width="28" height="90"/><rect class="bld" x="110" y="50" width="50" height="60"/><rect class="bld" x="230" y="28" width="34" height="82"/><rect class="bld" x="280" y="10" width="26" height="100"/><rect class="bld" x="320" y="46" width="60" height="64"/><rect class="bld" x="450" y="24" width="30" height="86"/><rect class="bld" x="490" y="56" width="44" height="54"/><rect class="bld" x="600" y="16" width="32" height="94"/><rect class="bld" x="644" y="40" width="54" height="70"/>' +
+    '<ellipse class="tree" cx="40" cy="100" rx="60" ry="16"/><ellipse class="tree-d" cx="170" cy="102" rx="70" ry="14"/><ellipse class="tree" cx="320" cy="100" rx="80" ry="16"/><ellipse class="tree-d" cx="480" cy="102" rx="70" ry="14"/><ellipse class="tree" cx="640" cy="100" rx="90" ry="16"/>' +
+    '<rect class="wall" x="0" y="108" width="768" height="24"/><rect class="wall-post" x="0" y="108" width="768" height="4"/><rect class="wall-post" x="60" y="104" width="8" height="28"/><rect class="wall-post" x="220" y="104" width="8" height="28"/><rect class="wall-post" x="380" y="104" width="8" height="28"/><rect class="wall-post" x="540" y="104" width="8" height="28"/><rect class="wall-post" x="700" y="104" width="8" height="28"/>' +
+    '</svg>';
+
+  // The speedometer: 0–10 on the dial, read times ten (so 4.6 is 46 wpm),
+  // red zone from 8. The needle is drawn pointing up and rotated by an
+  // inline transform (dialAngle − 270).
+  const GAUGE_SVG =
+    '<svg viewBox="0 0 120 120" aria-hidden="true">' +
+    '<circle class="dial" cx="60" cy="64" r="56"/>' +
+    '<path class="dial-arc" d="M20.2 87 A46 46 0 1 1 99.8 87"/>' +
+    '<path class="dial-red" d="M103.7 49.8 A46 46 0 0 1 99.8 87"/>' +
+    '<g class="dial-numbers" text-anchor="middle"><text x="30.6" y="84">0</text><text class="dial-min" x="27.7" y="57">2</text><text x="46.2" y="36">4</text><text x="73.8" y="36">6</text><text class="dial-min" x="92.3" y="57">8</text><text x="89.4" y="84">10</text></g>' +
+    '<g class="needle-g"><line class="needle" x1="60" y1="64" x2="53.7" y2="26.5" stroke-width="3" stroke-linecap="round"/><circle class="needle-hub" cx="60" cy="64" r="5"/></g>' +
+    '<text class="dial-label" x="60" y="106" text-anchor="middle">×10 wpm</text>' +
+    '</svg>';
 
   const STOPWATCH_SVG =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="14" r="7"/><path d="M12 14V10.5M10 3h4M12 3v4"/></svg>';
   const FLAG_SVG =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"/><path d="M5 4h13l-2 4.5 2 4.5H5"/><path d="M9 4v9M13 4v9M5 8.5h12"/></svg>';
 
-  function carNode(lane) {
-    const wrap = document.createElement('span');
-    wrap.innerHTML = CAR_SVG;
-    const svg = wrap.firstChild;
-    svg.setAttribute('class', 'car ' + CAR_CLASSES[((lane % 6) + 6) % 6]);
-    return svg;
+  function carNode(lane, tagText, tagYou) {
+    const wrap = el('span', 'car ' + CAR_CLASSES[((lane % 6) + 6) % 6]);
+    wrap.appendChild(text('span', 'car-tag' + (tagYou ? ' car-tag-you' : ''), tagText || ''));
+    const holder = document.createElement('span');
+    holder.innerHTML = CAR_SVG;
+    const svg = holder.firstChild;
+    svg.setAttribute('class', 'car-svg');
+    wrap.appendChild(svg);
+    return wrap;
   }
 
   // The track: one lane per racer plus, in the lobby, one open lane. The car
@@ -81,41 +114,108 @@
   // polls.
   function trackNode(entries, opts) {
     opts = opts || {};
-    const track = el('div', 'track');
+    const track = el('div', 'track road');
     for (const e of entries) {
-      const thin = opts.thin;
-      const lane = el('div', 'lane' + (thin ? ' lane-thin' : '') + (e.isYou ? ' lane-you' : ''));
-      lane.appendChild(text('span', 'lane-label', e.isYou ? 'You' : e.username));
-      const run = el('div', 'lane-run');
-      if (opts.withCars) {
-        const car = carNode(e.lane);
-        car.style.left = carLeft(e.progress, opts.total);
-        run.appendChild(car);
-      }
-      lane.appendChild(run);
+      const lane = el('div', 'lane' + (opts.thin ? ' lane-thin' : '') + (e.isYou ? ' lane-you' : ''));
+      if (opts.withCars) lane.appendChild(carNode(e.lane, '', e.isYou));
       track.appendChild(lane);
     }
     if (opts.openLane) {
       const lane = el('div', 'lane' + (opts.thin ? ' lane-thin' : ''));
-      lane.appendChild(text('span', 'lane-label', 'Open lane'));
-      lane.appendChild(el('div', 'lane-run'));
+      lane.appendChild(text('span', 'car-tag car-tag-open', 'Open lane'));
       track.appendChild(lane);
     }
     return track;
   }
 
   // progress 0…total → left offset inside the lane, stopping short of the
-  // checkered finish (8px) plus a little margin.
+  // checkered finish (8px) plus a little margin. --car-w comes from the lane.
   function carLeft(progress, total) {
     const frac = total ? Math.max(0, Math.min(1, progress / total)) : 0;
-    return 'calc((100% - 46px) * ' + frac.toFixed(4) + ' + 4px)';
+    return 'calc((100% - var(--car-w) - 16px) * ' + frac.toFixed(4) + ' + 6px)';
   }
 
-  function updateCars(track, entries, total) {
+  // Moves the cars and fills the name tags. tags[i] = { text, aria }.
+  function updateCars(track, entries, total, tags) {
     const cars = track.querySelectorAll('.car');
     entries.forEach((e, i) => {
-      if (cars[i]) cars[i].style.left = carLeft(e.progress, total);
+      const car = cars[i];
+      if (!car) return;
+      const frac = total ? Math.max(0, Math.min(1, e.progress / total)) : 0;
+      car.style.left = carLeft(e.progress, total);
+      const t = (tags && tags[i]) || {};
+      const tag = car.querySelector('.car-tag');
+      if (tag) {
+        tag.textContent = t.text != null ? t.text : '';
+        // Near the start the tag sits in front of the car, where there is
+        // room; once the car is well along it flips behind.
+        tag.classList.toggle('car-tag-ahead', frac < 0.35);
+        if (t.aria) tag.setAttribute('aria-label', t.aria);
+      }
     });
+  }
+
+  // The scene: the backdrop (and, in a race, the HUD on it), the barrier,
+  // the road, the barrier again. The dashboard is added later, by
+  // renderTypingArea, under the road.
+  function sceneNode(entries, opts) {
+    opts = opts || {};
+    const scene = el('div', 'scene');
+    const backdrop = el('div', 'scene-backdrop' + (opts.low ? ' scene-backdrop-low' : ''));
+    backdrop.innerHTML = SCENE_SVG;
+    scene.appendChild(backdrop);
+    if (opts.hud) scene.appendChild(hudNode());
+    scene.appendChild(el('div', 'curb'));
+    scene.appendChild(trackNode(entries, opts));
+    scene.appendChild(el('div', 'curb'));
+    return scene;
+  }
+
+  // The HUD on the sky: your speed with the start light, and the clock.
+  function hudNode() {
+    const hud = el('div', 'hud');
+    hud.id = 'hud';
+    const wpm = el('div', 'hud-badge');
+    wpm.id = 'hud-wpm';
+    const figure = el('b', 'hud-figure');
+    figure.id = 'hud-wpm-value';
+    figure.textContent = '0';
+    wpm.appendChild(figure);
+    wpm.appendChild(text('span', 'hud-unit', 'wpm'));
+    const signal = el('span', 'signal');
+    signal.setAttribute('aria-hidden', 'true');
+    signal.appendChild(el('i', 'signal-stop'));
+    signal.appendChild(el('i', 'signal-go'));
+    wpm.appendChild(signal);
+    const clock = el('div', 'hud-badge');
+    clock.id = 'hud-clock';
+    const clockText = el('b', 'hud-figure');
+    clockText.id = 'hud-clock-value';
+    clock.appendChild(clockText);
+    hud.appendChild(wpm);
+    hud.appendChild(clock);
+    return hud;
+  }
+
+  // The dashboard: the gauge and the passage strip.
+  function dashNode() {
+    const dash = el('div', 'dash');
+    dash.id = 'dash';
+    const holder = document.createElement('span');
+    holder.innerHTML = GAUGE_SVG;
+    dash.appendChild(holder.firstChild);
+    const strip = el('p', 'strip');
+    strip.id = 'strip';
+    strip.appendChild(el('span', 'strip-line'));
+    dash.appendChild(strip);
+    return dash;
+  }
+
+  // Name tags for a set of entries: other racers' names, You for yours.
+  function lobbyTags(entries) {
+    return entries.map((e) => e.isYou
+      ? { text: 'You', aria: 'You' }
+      : { text: e.username });
   }
 
   function placeBadge(entry) {
@@ -139,7 +239,7 @@
 
   function formatWhen(iso, nowMs) {
     const d = new Date(iso);
-    const local = (window.usernode && window.usernode.now ? window.usernode.now() : Date.now());
+    const local = localNowMs();
     const dayStart = new Date(local); dayStart.setHours(0, 0, 0, 0);
     const days = Math.floor((dayStart - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
     const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -148,21 +248,22 @@
     return d.toLocaleDateString([], { weekday: 'long' }) + ', ' + time;
   }
 
-  function clock(ms) {
-    const s = Math.max(0, Math.floor(ms / 1000));
-    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-  }
-
   // The server's clock, offset onto the page's own (the bridge's usernode.now
-  // when the bridge is around, the local clock otherwise).
+  // when the bridge is around, the local clock otherwise). The bridge hands
+  // back a Date, not a number, so coerce it: a Date plus anything else is a
+  // string, and every time comparison downstream goes NaN.
+  function localNowMs() {
+    const now = window.usernode && window.usernode.now ? window.usernode.now() : null;
+    const ms = now == null ? NaN : Number(now);
+    return isFinite(ms) ? ms : Date.now();
+  }
   let serverOffsetMs = 0; // serverNow - localNow
   function nowMs() {
-    return (window.usernode && window.usernode.now ? window.usernode.now() : Date.now()) + serverOffsetMs;
+    return localNowMs() + serverOffsetMs;
   }
   function absorbServerNow(iso) {
     if (!iso) return;
-    const local = window.usernode && window.usernode.now ? window.usernode.now() : Date.now();
-    serverOffsetMs = Date.parse(iso) - local;
+    serverOffsetMs = Date.parse(iso) - localNowMs();
   }
 
   // ── Screens ──────────────────────────────────────────────────────────────
@@ -183,13 +284,15 @@
 
   function renderLoading() {
     clear(app);
+    setWide(false);
     app.appendChild(headerNode());
     const card = el('section', 'card flex flex-col gap-3.5');
     card.appendChild(el('div', 'card-head flex items-baseline justify-between', [
       text('h2', 'text-heading', 'Next race'),
       el('span', 'skeleton h-4 w-20'),
     ]));
-    for (let i = 0; i < 3; i++) card.appendChild(el('div', 'skeleton h-9 w-full'));
+    // A scene-shaped placeholder: the grid arrives here in a moment.
+    card.appendChild(el('div', 'skeleton h-40 w-full rounded-xl'));
     card.appendChild(el('div', 'skeleton h-11 w-full rounded-lg'));
     app.appendChild(card);
     app.appendChild(el('div', 'skeleton h-11 w-full rounded-lg'));
@@ -198,6 +301,7 @@
 
   function renderError(retry) {
     clear(app);
+    setWide(false);
     app.appendChild(headerNode());
     const box = el('section', 'state-error rounded-xl border border-line bg-surface');
     box.appendChild(text('p', 'text-body font-medium', 'Could not load the race lobby.'));
@@ -235,17 +339,22 @@
     ]));
 
     if (lobby && lobby.racers.length) {
-      card.appendChild(trackNode(lobby.racers, {
+      // The lobby's starting grid: the scene with an open lane for the next
+      // racer, thin lanes once nine would be on the road. Cars all sit at
+      // the start line (total 0).
+      const scene = sceneNode(lobby.racers, {
         withCars: true,
         openLane: count < lobby.max,
         thin: lobby.racers.length + 1 >= 9,
-        total: 0,
-      }));
+        low: true,
+      });
+      updateCars(scene.querySelector('.track'), lobby.racers, 0, lobbyTags(lobby.racers));
+      card.appendChild(scene);
     } else {
       // One full-width open lane, same structure as the populated grid, with
       // the note left-aligned under it on the card's own padding.
       const empty = el('div', 'flex flex-col gap-3');
-      empty.appendChild(trackNode([], { openLane: true }));
+      empty.appendChild(sceneNode([], { openLane: true, low: true }));
       empty.appendChild(text('p', 'text-small text-muted',
         'No one is waiting yet. Join and the next race opens.'));
       card.appendChild(empty);
@@ -368,8 +477,11 @@
   };
 
   let raceTimer = null; // 1 s poll
-  let tickTimer = null; // 250 ms clock
+  let tickTimer = null; // 100 ms HUD tick
   let reconnecting = false;
+  let lastWpm = 0; // your speed figure, frozen once you finish
+  let lastRace = null; // the last race the server sent, for the ticker
+  let lastDemo = null;
 
   function stopRaceTimers() {
     if (raceTimer) { clearInterval(raceTimer); raceTimer = null; }
@@ -383,8 +495,12 @@
       passage: '', committed: 0, keystrokes: 0, correctKeys: 0,
       startedAt: null, finishedLocally: false, lastValue: '', lastPostAt: 0,
     });
+    lastWpm = 0;
+    lastRace = null;
+    lastDemo = null;
     pollRace(raceId);
     raceTimer = setInterval(() => pollRace(raceId), 1000);
+    tickTimer = setInterval(tickRace, 100);
   }
 
   async function pollRace(raceId) {
@@ -410,6 +526,8 @@
   }
 
   function renderRace(race, demo) {
+    lastRace = race;
+    lastDemo = demo;
     const startMs = race.startsAt ? Date.parse(race.startsAt) : null;
     const t = nowMs();
     const phase = race.status === 'finished' ? 'results'
@@ -421,6 +539,7 @@
 
     if (!sameRace) {
       clear(app);
+      setWide(true);
       const view = el('div', 'flex flex-col gap-4');
       view.id = 'race-view';
       view.dataset.raceId = race.id;
@@ -429,7 +548,7 @@
     }
     const view = document.getElementById('race-view');
 
-    // Head: title, field size and your running place, clock on the right.
+    // Head: title and field size. The clock lives on the scene's HUD now.
     const me = race.entries.find((e) => e.isYou);
     const ranked = race.entries.slice().sort((a, b) => b.progress - a.progress || a.lane - b.lane);
     const myPlace = me ? ranked.indexOf(me) + 1 : 0;
@@ -437,19 +556,15 @@
     const headMain = el('div');
     headMain.appendChild(text('h2', 'text-heading', isPractice ? 'Practice' : 'Race'));
     headMain.appendChild(text('p', 'text-small text-muted',
-      race.entries.length + (race.entries.length === 1 ? ' racer' : ' racers') +
-      (me && race.entries.length > 1 ? ' · you are ' + ordinal(myPlace).toLowerCase() : '')));
+      race.entries.length + (race.entries.length === 1 ? ' racer' : ' racers')));
     head.appendChild(headMain);
-    const clockEl = el('p', 'font-mono text-[28px] font-bold leading-9');
-    clockEl.id = 'race-clock';
-    head.appendChild(clockEl);
     const slot = el('div', 'race-head-slot');
     slot.appendChild(head);
     const oldHead = view.querySelector('.race-head-slot');
     if (oldHead) oldHead.replaceWith(slot);
     else {
-      const demo = view.querySelector('p');
-      if (demo) demo.after(slot); else view.insertBefore(slot, view.firstChild);
+      const demoP = view.querySelector('p');
+      if (demoP) demoP.after(slot); else view.insertBefore(slot, view.firstChild);
     }
 
     // Reconnecting line, quiet, under the head.
@@ -461,20 +576,39 @@
       view.appendChild(recon);
     }
 
-    // The track, every car on it.
+    // The scene: built once per race, only the track replaced when the
+    // number of racers changes.
     const total = race.total || 0;
-    let track = view.querySelector('.track');
-    if (!track || track.childElementCount !== race.entries.length) {
-      if (track) track.replaceWith(trackNode(race.entries, { withCars: true, thin: race.entries.length >= 9, total }));
-      else view.appendChild(trackNode(race.entries, { withCars: true, thin: race.entries.length >= 9, total }));
-      track = view.querySelector('.track');
+    let scene = document.getElementById('scene');
+    if (!scene) {
+      scene = sceneNode(race.entries, {
+        withCars: true,
+        thin: race.entries.length >= 9,
+        hud: true,
+      });
+      scene.id = 'scene';
+      view.appendChild(scene);
+    }
+    let track = scene.querySelector('.track');
+    if (track.childElementCount !== race.entries.length) {
+      track.replaceWith(trackNode(race.entries, {
+        withCars: true, thin: race.entries.length >= 9,
+      }));
+      track = scene.querySelector('.track');
     }
     if (me) {
       // Your car follows your local typing, which is ahead of the last poll.
       const localProgress = localTypingProgress();
       me.progress = Math.max(me.progress, localProgress);
     }
-    updateCars(track, race.entries, total);
+    // Your tag: You in the lobby and practice, your live place in a race.
+    const placeNow = me && (race.status === 'finished' ? me.place : myPlace);
+    const tags = race.entries.map((e) => {
+      if (!e.isYou) return { text: e.username };
+      if (isPractice) return { text: 'You', aria: 'You' };
+      return { text: '#' + placeNow, aria: 'You, ' + ordinal(placeNow) };
+    });
+    updateCars(track, race.entries, total, tags);
 
     if (phase === 'results') {
       stopRaceTimers();
@@ -482,13 +616,7 @@
       return;
     }
 
-    // Clock text: the countdown before Go, then the race time.
-    if (phase === 'countdown') {
-      clockEl.textContent = 'Starting in ' + Math.ceil((startMs - t) / 1000);
-    } else {
-      clockEl.textContent = clock(t - startMs);
-      if (!typing.startedAt) typing.startedAt = startMs;
-    }
+    if (!typing.startedAt && phase === 'racing') typing.startedAt = startMs;
 
     if (typing.finishedLocally || (me && me.finished)) {
       // You are across the line: a short wait shows the others still racing.
@@ -497,12 +625,67 @@
       if (phase === 'racing') {
         typing.passage = typing.passage || race.passage || '';
       }
+      tickRace();
       return;
     }
 
-    if (!race.passage) return; // still waiting for the server's passage
+    if (!race.passage) {
+      tickRace();
+      return; // still waiting for the server's passage
+    }
     typing.passage = race.passage;
     renderTypingArea(view, race, phase);
+    tickRace();
+  }
+
+  // The 100 ms ticker: the HUD clock, the speed figure, the start light and
+  // the gauge needle, all between polls. Only writes to elements that exist,
+  // so it is safe to keep running while a render is between screens.
+  function tickRace() {
+    const race = lastRace;
+    if (!race) return;
+    const clockEl = document.getElementById('hud-clock-value');
+    const wpmEl = document.getElementById('hud-wpm-value');
+    if (!clockEl && !wpmEl) return;
+    const startMs = race.startsAt ? Date.parse(race.startsAt) : null;
+    const t = nowMs();
+    const go = startMs != null && t >= startMs;
+
+    // The clock: the countdown before Go, then the time left before the
+    // server closes the race (a dash until closesAt arrives).
+    if (clockEl) {
+      if (!go && startMs != null) {
+        clockEl.textContent = 'Starting in ' + Math.ceil((startMs - t) / 1000);
+      } else if (race.closesAt) {
+        clockEl.textContent = Typing.raceClock(Date.parse(race.closesAt) - t);
+      } else {
+        clockEl.textContent = '–';
+      }
+    }
+
+    // The speed figure: the usual formula, 0 before Go, frozen once you
+    // finish so the needle does not sag to zero while you wait.
+    if (go && !typing.finishedLocally && typing.startedAt) {
+      const correct = localTypingProgress();
+      const elapsed = Math.max(1, t - typing.startedAt);
+      lastWpm = Math.round(correct / 5 / (elapsed / 60000));
+    }
+    const wpm = go ? lastWpm : 0;
+    if (wpmEl) wpmEl.textContent = String(wpm);
+
+    // The start light and the needle.
+    const stopDot = document.querySelector('#hud-wpm .signal-stop');
+    const goDot = document.querySelector('#hud-wpm .signal-go');
+    if (stopDot) stopDot.classList.toggle('signal-stop-on', !!startMs && !go);
+    if (goDot) goDot.classList.toggle('signal-go-on', go);
+    const needle = document.querySelector('#dash .needle-g');
+    if (needle) needle.style.transform = 'rotate(' + (Typing.dialAngle(wpm) - 270) + 'deg)';
+
+    // Go arrived while the field was still shut: re-render to open it.
+    const field = document.getElementById('type-field');
+    if (go && field && field.disabled && !typing.finishedLocally) {
+      renderRace(lastRace, lastDemo);
+    }
   }
 
   function localTypingProgress() {
@@ -511,21 +694,18 @@
     return Math.min(typing.passage.length, typing.committed + st.correct);
   }
 
-  // The passage card and the typing field. The field holds the current word:
-  // it clears when the word and its space are right, the familiar
-  // typing-race way.
+  // The dashboard in the scene (gauge + passage strip) and the typing field
+  // under the scene. The field holds the current word: it clears when the
+  // word and its space are right, the familiar typing-race way.
   function renderTypingArea(view, race, phase) {
-    const total = race.total || typing.passage.length;
     const go = phase === 'racing';
 
-    let card = document.getElementById('passage-card');
-    if (!card) {
-      card = el('div', 'card');
-      card.id = 'passage-card';
-      const passage = el('p', 'passage');
-      passage.id = 'passage';
-      card.appendChild(passage);
-      view.appendChild(card);
+    // The dashboard goes inside the scene, under the road.
+    const scene = document.getElementById('scene');
+    let dash = document.getElementById('dash');
+    if (!dash && scene) {
+      dash = dashNode();
+      scene.appendChild(dash);
     }
     renderPassage();
 
@@ -556,37 +736,36 @@
     field.disabled = !go;
     if (go && document.activeElement !== field) field.focus();
 
-    // Live figures under the field.
+    // Accuracy under the field; speed lives on the scene's HUD.
     let live = document.getElementById('live');
     if (!live) {
-      live = el('p', 'flex justify-between font-mono text-small text-muted');
+      live = el('p', 'font-mono text-small text-muted');
       live.id = 'live';
       view.appendChild(live);
     }
-    const st = Typing.typingState(typing.passage, typing.committed, typing.lastValue);
-    const correct = typing.committed + st.correct;
-    const elapsed = typing.startedAt ? Math.max(1, nowMs() - typing.startedAt) : 1;
+    updateLive();
+  }
+
+  function updateLive() {
+    const live = document.getElementById('live');
+    if (!live) return;
     live.textContent = '';
-    // Two spans, not bare text nodes: a flex box wraps adjacent text into one
-    // anonymous item, which would leave justify-between nothing to space out.
-    live.appendChild(text('span', null,
-      Math.round(correct / 5 / (elapsed / 60000)) + ' wpm'));
     live.appendChild(text('span', null,
       (typing.keystrokes ? Math.round((typing.correctKeys / typing.keystrokes) * 100) : 100) + '% accuracy'));
   }
 
   function renderPassage() {
-    const passage = document.getElementById('passage');
-    if (!passage) return;
+    const strip = document.getElementById('strip');
+    if (!strip) return;
+    const parts = Typing.stripParts(typing.passage, typing.committed, typing.lastValue);
     const st = Typing.typingState(typing.passage, typing.committed, typing.lastValue);
-    const okEnd = typing.committed + st.correct;
-    clear(passage);
-    if (okEnd > 0) passage.appendChild(text('span', 'ch-ok', typing.passage.slice(0, okEnd)));
-    if (st.wrong) {
-      passage.appendChild(text('span', 'ch-bad',
-        typing.passage.slice(okEnd + st.wrong.start, okEnd + st.wrong.end)));
-    }
-    passage.appendChild(text('span', 'ch-rest caret', typing.passage.slice(okEnd)));
+    const line = clear(strip.firstElementChild);
+    if (parts.ok) line.appendChild(text('span', 'ch-ok', parts.ok));
+    if (parts.bad) line.appendChild(text('span', 'ch-bad', parts.bad));
+    line.appendChild(text('span', 'caret', ''));
+    line.appendChild(text('span', 'ch-rest', parts.rest));
+    // The line slides left so the caret stays in view; --at is in characters.
+    line.style.setProperty('--at', String(parts.at));
     const field = document.getElementById('type-field');
     const err = document.getElementById('field-err');
     if (field) field.classList.toggle('field-error', !!st.wrong);
@@ -623,17 +802,8 @@
       }
     }
     renderPassage();
-    renderTypingArea(document.getElementById('race-view'), { total: typing.passage.length }, 'racing');
-    const liveEl = document.getElementById('live');
-    if (liveEl) {
-      const correct = localTypingProgress();
-      const elapsed = typing.startedAt ? Math.max(1, nowMs() - typing.startedAt) : 1;
-      liveEl.textContent = '';
-      liveEl.appendChild(text('span', null,
-        Math.round(correct / 5 / (elapsed / 60000)) + ' wpm'));
-      liveEl.appendChild(text('span', null,
-        (typing.keystrokes ? Math.round((typing.correctKeys / typing.keystrokes) * 100) : 100) + '% accuracy'));
-    }
+    renderTypingArea(document.getElementById('race-view'), null, 'racing');
+    updateLive();
     postProgress(false);
   }
 
@@ -672,8 +842,8 @@
   }
 
   function renderWaiting(view, race, total) {
-    const card = document.getElementById('passage-card');
-    if (card) card.remove();
+    const dash = document.getElementById('dash');
+    if (dash) dash.remove(); // the gauge and strip go; the HUD and cars stay
     const fieldWrap = document.getElementById('field-wrap');
     if (fieldWrap) fieldWrap.remove();
     let wait = document.getElementById('waiting');
@@ -709,6 +879,11 @@
     if (card) card.remove();
     const fieldWrap = document.getElementById('field-wrap');
     if (fieldWrap) fieldWrap.remove();
+    const dash = document.getElementById('dash');
+    if (dash) dash.remove();
+    // The clock and speed figure are over: the HUD fades out of the sky.
+    const hud = document.getElementById('hud');
+    if (hud) hud.hidden = true;
     const live = document.getElementById('live');
     if (live) live.remove();
     const recon = document.getElementById('reconnect');
