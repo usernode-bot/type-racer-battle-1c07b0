@@ -206,6 +206,9 @@
     stroke: rgb(var(--track));
     stroke-width: 1.5;
   }
+  /* The ghost: your best practice run on this passage, your livery faded. */
+  .car-ghost { opacity: 0.4; }
+  .dark .car-ghost { opacity: 0.45; }
 
   /* ── The passage ──
    * Large monospace, one slot per character: typed-right letters dark,

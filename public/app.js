@@ -111,8 +111,28 @@
     return 'calc((100% - 46px) * ' + frac.toFixed(4) + ' + 4px)';
   }
 
+  // Your best practice speed per passage, kept on this device only. Storage
+  // can throw in a sandboxed frame or private mode: every failure is silent
+  // and reads as "no best".
+  function bestWpmKey(passage) {
+    return 'typeRacer.bestWpm:' + passage;
+  }
+  function readBestWpm(passage) {
+    try {
+      const v = parseInt(window.localStorage.getItem(bestWpmKey(passage)), 10);
+      return v > 0 ? v : null;
+    } catch (_) { return null; }
+  }
+  function saveBestWpm(passage, wpm) {
+    const best = readBestWpm(passage);
+    if (!(wpm > 0 && (best == null || wpm > best))) return;
+    try {
+      window.localStorage.setItem(bestWpmKey(passage), String(Math.round(wpm)));
+    } catch (_) { /* blocked storage: the best is simply not kept */ }
+  }
+
   function updateCars(track, entries, total) {
-    const cars = track.querySelectorAll('.car');
+    const cars = track.querySelectorAll('.car:not(.car-ghost)');
     entries.forEach((e, i) => {
       if (cars[i]) cars[i].style.left = carLeft(e.progress, total);
     });
@@ -157,7 +177,12 @@
   // when the bridge is around, the local clock otherwise).
   let serverOffsetMs = 0; // serverNow - localNow
   function nowMs() {
-    return (window.usernode && window.usernode.now ? window.usernode.now() : Date.now()) + serverOffsetMs;
+    const local = (window.usernode && window.usernode.now ? window.usernode.now() : Date.now());
+    // The bridge's now() hands back a Date, not a number; adding it with +
+    // would build a string and every subtraction against the result NaN.
+    // Coerce to milliseconds first, then apply the offset.
+    const ms = (local instanceof Date) ? local.getTime() : Number(local);
+    return ms + serverOffsetMs;
   }
   function absorbServerNow(iso) {
     if (!iso) return;
@@ -365,6 +390,7 @@
     finishedLocally: false,
     lastValue: '',
     lastPostAt: 0,
+    ghostWpm: null, // best practice speed for this passage; 0 = no ghost
   };
 
   let raceTimer = null; // 1 s poll
@@ -382,6 +408,7 @@
       raceId, kind,
       passage: '', committed: 0, keystrokes: 0, correctKeys: 0,
       startedAt: null, finishedLocally: false, lastValue: '', lastPostAt: 0,
+      ghostWpm: null,
     });
     pollRace(raceId);
     raceTimer = setInterval(() => pollRace(raceId), 1000);
@@ -416,6 +443,12 @@
       : startMs && t < startMs ? 'countdown' : 'racing';
     const isPractice = race.kind === 'practice';
 
+    // Read the saved best once per race, so a best saved at the end of this
+    // run cannot change the ghost mid-screen. 0 means "no ghost".
+    if (isPractice && race.passage && typing.ghostWpm === null) {
+      typing.ghostWpm = readBestWpm(race.passage) || 0;
+    }
+
     const existing = document.getElementById('race-view');
     const sameRace = existing && existing.dataset.raceId === String(race.id);
 
@@ -438,6 +471,7 @@
     headMain.appendChild(text('h2', 'text-heading', isPractice ? 'Practice' : 'Race'));
     headMain.appendChild(text('p', 'text-small text-muted',
       race.entries.length + (race.entries.length === 1 ? ' racer' : ' racers') +
+      (isPractice && typing.ghostWpm > 0 ? ' · ghost at your best, ' + typing.ghostWpm + ' wpm' : '') +
       (me && race.entries.length > 1 ? ' · you are ' + ordinal(myPlace).toLowerCase() : '')));
     head.appendChild(headMain);
     const clockEl = el('p', 'font-mono text-[28px] font-bold leading-9');
@@ -475,6 +509,31 @@
       me.progress = Math.max(me.progress, localProgress);
     }
     updateCars(track, race.entries, total);
+
+    // The ghost: in practice, your best run on this passage driving your
+    // lane at that speed. Faded copy of your car, drawn underneath it, so
+    // it sits on the line in the countdown, moves off at Go and stops at
+    // the finish line like any car. Results leave it where it was.
+    if (isPractice && typing.ghostWpm > 0 && me) {
+      let ghost = track.querySelector('.car-ghost');
+      if (!ghost) {
+        const run = track.querySelector('.lane-you .lane-run');
+        if (run) {
+          ghost = carNode(me.lane);
+          ghost.classList.add('car-ghost');
+          run.insertBefore(ghost, run.firstChild);
+        }
+      }
+      if (ghost) {
+        if (phase === 'countdown') {
+          ghost.style.left = carLeft(0, total);
+        } else if (phase === 'racing') {
+          const elapsed = Math.max(0, nowMs() - startMs);
+          const chars = Math.min(total, typing.ghostWpm * 5 * elapsed / 60000);
+          ghost.style.left = carLeft(chars, total);
+        }
+      }
+    }
 
     if (phase === 'results') {
       stopRaceTimers();
@@ -704,6 +763,15 @@
     let results = document.getElementById('results');
     if (results && results.dataset.raceId === String(race.id)) return;
     if (results) results.remove();
+
+    // A finished practice run saves its speed as this passage's best when
+    // it beats the one already stored. An out-of-time run saves nothing.
+    if (isPractice) {
+      const meEntry = race.entries.find((e) => e.isYou);
+      if (meEntry && !meEntry.outOfTime && meEntry.wpm != null && race.passage) {
+        saveBestWpm(race.passage, meEntry.wpm);
+      }
+    }
 
     const card = document.getElementById('passage-card');
     if (card) card.remove();

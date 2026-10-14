@@ -133,7 +133,7 @@ it, and updates it when a request changes the look on purpose.
 
 Components beyond the starter kit, all in the kit file: `track`, `lane`,
 `lane-label`, `lane-run`, `lane-thin` (24 px lanes from nine racers),
-`lane-you`, `car`, `passage` with `ch-ok` / `ch-bad` / `ch-rest` / `caret`,
+`lane-you`, `car`, `car-ghost`, `passage` with `ch-ok` / `ch-bad` / `ch-rest` / `caret`,
 `badge` / `badge-win`, `stats` / `stat`, and `field-error`.
 
 The kit is in `styles/tailwind-input.css`: colour tokens with a light and
