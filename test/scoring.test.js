@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress } = require('../lib/scoring');
+const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress, progressStamp } = require('../lib/scoring');
 
 test('wpm counts five characters per word, rounded', () => {
   // 300 chars in 60 s = 60 words = 60 wpm.
@@ -83,4 +83,30 @@ test('maxPlausibleProgress caps at 25 characters per second', () => {
   assert.strictEqual(maxPlausibleProgress(-5), 0);
   // 30 s in: 750 chars, far past any real passage.
   assert.strictEqual(maxPlausibleProgress(30000), 750);
+});
+
+test('progressStamp keeps a valid seq and clientId', () => {
+  assert.deepStrictEqual(progressStamp({ seq: 3, clientId: 'abc-123' }), { seq: 3, clientId: 'abc-123' });
+  // A numeric string seq is accepted and normalised to a number.
+  assert.deepStrictEqual(progressStamp({ seq: '7', clientId: 'a' }), { seq: 7, clientId: 'a' });
+  // Boundary: 1 and the int ceiling pass, a 64-char id passes.
+  assert.deepStrictEqual(progressStamp({ seq: 1, clientId: 'x'.repeat(64) }), { seq: 1, clientId: 'x'.repeat(64) });
+  assert.deepStrictEqual(progressStamp({ seq: 2147483647, clientId: 'x' }), { seq: 2147483647, clientId: 'x' });
+});
+
+test('progressStamp nulls an out-of-range or malformed seq', () => {
+  for (const bad of [0, -1, 2.5, 2147483648, 'garbage', null, true, {}, []]) {
+    assert.strictEqual(progressStamp({ seq: bad, clientId: 'a' }).seq, null, 'seq: ' + String(bad));
+  }
+});
+
+test('progressStamp nulls a malformed clientId', () => {
+  for (const bad of ['', 'a'.repeat(65), 42, null, 'has space', 'has_under', 'héllo']) {
+    assert.strictEqual(progressStamp({ seq: 5, clientId: bad }).clientId, null, 'clientId: ' + String(bad));
+  }
+});
+
+test('progressStamp answers all null for a missing or empty body', () => {
+  assert.deepStrictEqual(progressStamp(undefined), { seq: null, clientId: null });
+  assert.deepStrictEqual(progressStamp({}), { seq: null, clientId: null });
 });

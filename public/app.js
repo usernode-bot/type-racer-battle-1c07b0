@@ -56,6 +56,48 @@
     } catch (_) { /* the toast is a nicety, never a failure */ }
   }
 
+  // A stable tag for this browser, sent with every progress post so the
+  // server can tell a resend of this device from an update of another.
+  // Saved in localStorage and reused across races; when storage is
+  // unavailable (some private modes) the id lives only for this page visit.
+  let memoryClientId = null;
+  function clientId() {
+    const generate = () => {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    };
+    try {
+      let id = localStorage.getItem('trb.clientId');
+      if (!id) {
+        id = generate();
+        localStorage.setItem('trb.clientId', id);
+      }
+      return id;
+    } catch (_) {
+      if (!memoryClientId) memoryClientId = generate();
+      return memoryClientId;
+    }
+  }
+
+  // The running number for the current race: starts at 1 with the race, +1
+  // per post, saved in localStorage so a reload mid-race continues above the
+  // server's watermark instead of looking stale and being dropped. Only the
+  // current race's counter is kept. With storage unavailable, the in-memory
+  // counter that enterRace resets stands in.
+  let memorySeq = 0;
+  function nextSeq(raceId) {
+    try {
+      let stored = null;
+      try { stored = JSON.parse(localStorage.getItem('trb.seq') || 'null'); } catch (_) { /* corrupt value: start over */ }
+      const seq = (stored && stored.raceId === raceId && Number.isInteger(stored.seq) ? stored.seq : 0) + 1;
+      localStorage.setItem('trb.seq', JSON.stringify({ raceId, seq }));
+      return seq;
+    } catch (_) {
+      return ++memorySeq;
+    }
+  }
+
   // The SVG car, drawn once in its lane's livery (the colour comes from a
   // whole-literal class on the svg, so Tailwind's extractor sees it).
   const CAR_SVG =
@@ -378,6 +420,7 @@
 
   function enterRace(raceId, kind) {
     stopRaceTimers();
+    memorySeq = 0; // storageless fallback counter starts over with the race
     Object.assign(typing, {
       raceId, kind,
       passage: '', committed: 0, keystrokes: 0, correctKeys: 0,
@@ -645,7 +688,10 @@
   }
 
   // Progress goes to the server as you type: on every word and at most about
-  // once a second otherwise. A failed post is not queued; the next one
+  // once a second otherwise. Each post is stamped with a running number and
+  // this browser's id; the server applies each stamp once and ignores a
+  // repeat or one that arrives after a newer one, so a resent or delayed
+  // post can never move the car. A failed post is not queued; the next one
   // carries the latest totals.
   async function postProgress(force) {
     const raceId = typing.raceId;
@@ -662,6 +708,8 @@
           progress: typing.finishedLocally ? typing.passage.length : progress,
           keystrokes: typing.keystrokes,
           correctKeys: typing.correctKeys,
+          seq: nextSeq(raceId),
+          clientId: clientId(),
         }),
       });
       if (body && body.race && typing.raceId === raceId) {
