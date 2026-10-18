@@ -104,6 +104,12 @@ second, no websocket. Passages ship with the app in `lib/sentences.js`, two
 short everyday sentences per race, so no passage or custom-text feature
 should ever grow outside that pool without a reason.
 
+Race kinds: `'race'` (the shared lobby race), `'practice'` (solo), `'bot'`
+(Lawan Bot, three made-up racers at the chosen level) and `'ghost'` (a replay
+of a past run, timeline in `race_entries.ghost_points`). Bot and ghost races
+show in "Your races" and count toward best wpm and accuracy, but wins stay
+human races only: the green winner badge and "wins of N" count `'race'` runs.
+
 ## Design
 
 This app's look. The first real version set it; every later change follows
@@ -133,7 +139,7 @@ it, and updates it when a request changes the look on purpose.
 
 Components beyond the starter kit, all in the kit file: `track`, `lane`,
 `lane-label`, `lane-run`, `lane-thin` (24 px lanes from nine racers),
-`lane-you`, `car`, `passage` with `ch-ok` / `ch-bad` / `ch-rest` / `caret`,
+`lane-you`, `car` (with the faded `car-ghost` replay variant), `passage` with `ch-ok` / `ch-bad` / `ch-rest` / `caret`,
 `badge` / `badge-win`, `stats` / `stat`, and `field-error`.
 
 The kit is in `styles/tailwind-input.css`: colour tokens with a light and

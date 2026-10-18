@@ -206,6 +206,11 @@
     stroke: rgb(var(--track));
     stroke-width: 1.5;
   }
+  /* The ghost car: a replay of an old run, drawn faded so it reads as a
+     recording, not a live racer. */
+  .car-ghost {
+    @apply opacity-45;
+  }
 
   /* ── The passage ──
    * Large monospace, one slot per character: typed-right letters dark,

@@ -3,6 +3,7 @@ const path = require('path');
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
 const { pickText } = require('./lib/sentences');
+const { BOT_LEVELS, pickBots, ghostTimeline, ghostProgress } = require('./lib/bots');
 const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress } = require('./lib/scoring');
 
 const app = express();
@@ -177,7 +178,7 @@ async function ensureSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS races (
       id bigserial PRIMARY KEY,
-      kind text NOT NULL,               -- 'race' or 'practice'
+      kind text NOT NULL,               -- 'race', 'practice', 'bot' or 'ghost'
       status text NOT NULL,             -- 'lobby', 'running', 'finished'
       passage text,
       starts_at timestamptz,
@@ -219,6 +220,11 @@ async function ensureSchema() {
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS race_entries_user
     ON race_entries (race_id, user_id) WHERE user_id IS NOT NULL`);
+  // Append-only columns for Lawan Bot races and ghost replays: which speed
+  // level a bot race ran at, and how far a racer had typed at each moment
+  // (on a ghost entry, the copied timeline being replayed).
+  await pool.query('ALTER TABLE races ADD COLUMN IF NOT EXISTS bot_level text');
+  await pool.query('ALTER TABLE race_entries ADD COLUMN IF NOT EXISTS ghost_points jsonb');
 }
 
 // Deterministic randomness for the demo seed, so a preview reload always
@@ -273,9 +279,10 @@ async function settleRace(race, now) {
   return true;
 }
 
-// Advance the made-up racers of a demo race on each read. Their progress is
-// their steady wpm over the time since the start; a bot that reaches the
-// end gets a finished_at at the exact moment its speed implies.
+// Advance the made-up racers on each read: the demo's bots, Lawan Bot racers
+// and ghost entries. A ghost replays its recorded timeline (speeding up and
+// slowing down where the original did); a plain bot drives at its steady wpm.
+// A bot that reaches the end gets a finished_at at the exact moment implied.
 async function updateBots(race, now) {
   if (race.status !== 'running' || !race.starts_at || !race.passage) return;
   const startMs = new Date(race.starts_at).getTime();
@@ -283,14 +290,15 @@ async function updateBots(race, now) {
   if (elapsedMs <= 0) return;
   const len = race.passage.length;
   const { rows: bots } = await pool.query(
-    'SELECT lane, bot_wpm, bot_accuracy, finished_at FROM race_entries WHERE race_id = $1 AND user_id IS NULL AND bot_wpm IS NOT NULL',
+    'SELECT lane, bot_wpm, bot_accuracy, ghost_points, finished_at FROM race_entries WHERE race_id = $1 AND user_id IS NULL AND bot_wpm IS NOT NULL',
     [race.id]);
   for (const b of bots) {
     if (b.finished_at) continue;
+    const gp = ghostProgress(b.ghost_points, elapsedMs, len);
     const charsPerMs = (b.bot_wpm * 5) / 60000;
-    const progress = Math.min(len, Math.floor(charsPerMs * elapsedMs));
-    const finishMs = len / charsPerMs;
-    const finishedAt = progress >= len
+    const progress = gp ? gp.progress : Math.min(len, Math.floor(charsPerMs * elapsedMs));
+    const finishMs = gp ? gp.finishMs : len / charsPerMs;
+    const finishedAt = finishMs != null && progress >= len
       ? new Date(Math.min(startMs + finishMs, now.getTime()))
       : null;
     await pool.query(
@@ -334,6 +342,7 @@ function entryView(e, viewerId, race, settled) {
   return {
     username: e.username,
     lane: e.lane,
+    human: e.user_id != null,
     isYou: viewerId != null && e.user_id === String(viewerId),
     progress: e.progress,
     finished: e.finished_at != null,
@@ -361,7 +370,7 @@ async function raceResponse(req, raceId, demo) {
          WHERE race_id = $2 AND user_id = $3 AND (SELECT status FROM races WHERE id = $2) = 'lobby'`,
         [req.now, race.id, String(viewerId)]);
     }
-  } else if (demo != null) {
+  } else if (demo != null || race.kind === 'bot' || race.kind === 'ghost') {
     await updateBots(race, req.now);
     const { rows: fresh } = await pool.query('SELECT * FROM races WHERE id = $1', [race.id]);
     Object.assign(race, fresh[0]);
@@ -382,6 +391,7 @@ async function raceResponse(req, raceId, demo) {
     closesAt: closesAt(race),
     total: sharePassage && race.passage ? race.passage.length : null,
     passage: sharePassage ? race.passage : null,
+    level: race.bot_level,
     entries: entries.map((e) => entryView(e, viewerId, race, settled)),
   };
 }
@@ -513,7 +523,7 @@ app.get('/api/home', h(async (req, res) => {
     `SELECT * FROM races WHERE status = 'running' AND starts_at IS NOT NULL AND ${owner.sql}`,
     owner.values);
   for (const race of due.rows) {
-    if (demo != null) { await updateBots(race, req.now); const f = await pool.query('SELECT * FROM races WHERE id = $1', [race.id]); Object.assign(race, f.rows[0]); }
+    if (demo != null || race.kind === 'bot' || race.kind === 'ghost') { await updateBots(race, req.now); const f = await pool.query('SELECT * FROM races WHERE id = $1', [race.id]); Object.assign(race, f.rows[0]); }
     await settleRace(race, req.now);
   }
 
@@ -563,26 +573,38 @@ app.get('/api/home', h(async (req, res) => {
     if (active.rows.length) activeRaceId = active.rows[0].id;
   }
 
-  // Stats and recent races. Practice runs land in the list but never in the
-  // stats: no best speed, no accuracy average, no wins.
-  const stats = { bestWpm: 0, avgAccuracy: 0, wins: 0, races: 0 };
+  // Stats and recent races. Bot and ghost races count toward best speed and
+  // accuracy and land in the list, but wins stay human races only: 'wins of
+  // N' counts kind='race' runs, as do the wins and the N.
+  const stats = { bestWpm: 0, avgAccuracy: 0, wins: 0, races: 0, runs: 0 };
+  let ghost = null;
   let recent = [];
   if (viewerId != null) {
     const agg = await pool.query(
-      `SELECT e.wpm, e.accuracy, e.place FROM race_entries e
+      `SELECT e.wpm, e.accuracy, e.place, r.kind FROM race_entries e
        JOIN races r ON r.id = e.race_id
-       WHERE e.user_id = $1 AND r.status = 'finished' AND r.kind = 'race' AND ${ownerClause(demo, 2).sql}
+       WHERE e.user_id = $1 AND r.status = 'finished' AND r.kind IN ('race','bot','ghost') AND ${ownerClause(demo, 2).sql}
        ORDER BY r.finished_at DESC NULLS LAST LIMIT 20`,
       [viewerId, ...ownerClause(demo, 2).values]);
     const rows = agg.rows.filter((r) => r.wpm != null);
     if (rows.length) {
       stats.bestWpm = Math.max(...rows.map((r) => r.wpm));
       stats.avgAccuracy = Math.round(rows.reduce((s, r) => s + (r.accuracy || 0), 0) / rows.length);
-      stats.wins = rows.filter((r) => r.place === 1).length;
-      stats.races = rows.length;
+      stats.wins = rows.filter((r) => r.kind === 'race' && r.place === 1).length;
+      stats.races = rows.filter((r) => r.kind === 'race').length;
+      stats.runs = rows.length;
     }
+    // The viewer's best finished run, the run their ghost replays.
+    const best = await pool.query(
+      `SELECT e.wpm FROM race_entries e
+       JOIN races r ON r.id = e.race_id
+       WHERE e.user_id = $1 AND r.status = 'finished' AND r.finished_at IS NOT NULL
+         AND e.wpm > 0 AND ${ownerClause(demo, 2).sql}
+       ORDER BY e.wpm DESC, r.finished_at DESC LIMIT 1`,
+      [viewerId, ...ownerClause(demo, 2).values]);
+    if (best.rows.length) ghost = { wpm: best.rows[0].wpm };
     const list = await pool.query(
-      `SELECT e.place, e.wpm, e.accuracy, r.kind, r.finished_at,
+      `SELECT e.place, e.wpm, e.accuracy, r.kind, r.bot_level, r.finished_at,
               (SELECT COUNT(*) FROM race_entries WHERE race_id = r.id)::int AS field_size
        FROM race_entries e JOIN races r ON r.id = e.race_id
        WHERE e.user_id = $1 AND r.status = 'finished' AND ${ownerClause(demo, 2).sql}
@@ -590,6 +612,7 @@ app.get('/api/home', h(async (req, res) => {
       [viewerId, ...ownerClause(demo, 2).values]);
     recent = list.rows.map((r) => ({
       kind: r.kind,
+      level: r.bot_level,
       place: r.place,
       fieldSize: r.field_size,
       wpm: r.wpm,
@@ -604,6 +627,7 @@ app.get('/api/home', h(async (req, res) => {
     serverNow: req.now.toISOString(),
     lobby,
     activeRaceId,
+    ghost,
     stats,
     recent,
   });
@@ -726,6 +750,156 @@ app.post('/api/practice', h(async (req, res) => {
   res.json({ ok: true, raceId: ins.rows[0].id });
 }));
 
+// 409 when the viewer already has a running race in their world — you cannot
+// be in two races at once. Same query /api/lobby/join uses.
+async function inRunningRace(demo, viewerId) {
+  const owner = ownerClause(demo, 2);
+  const active = await pool.query(
+    `SELECT r.id FROM race_entries e JOIN races r ON r.id = e.race_id
+     WHERE e.user_id = $1 AND r.status = 'running' AND ${owner.sql} LIMIT 1`,
+    [viewerId, ...owner.values]);
+  return active.rows.length > 0;
+}
+
+// Take the viewer off the next race's grid (inside a transaction), so
+// waiting in the lobby and racing a bot never overlap.
+async function clearLobbyEntry(client, demo, viewerId) {
+  if (demo == null) {
+    await client.query(
+      `DELETE FROM race_entries e USING races r
+       WHERE e.race_id = r.id AND r.status = 'lobby' AND r.demo_owner IS NULL AND e.user_id = $1`,
+      [viewerId]);
+  } else {
+    await client.query(
+      `DELETE FROM race_entries e USING races r
+       WHERE e.race_id = r.id AND r.status = 'lobby' AND r.demo_owner = $2 AND e.user_id = $1`,
+      [viewerId, demo]);
+  }
+}
+
+// A Lawan Bot race: the viewer in lane 0, three made-up racers at the level's
+// speeds, a 3 s countdown, running straight away.
+app.post('/api/bot-race', h(async (req, res) => {
+  const demo = demoOwner(req);
+  const level = req.body ? req.body.level : null;
+  if (!BOT_LEVELS[level]) return res.status(400).json({ error: 'bad_level' });
+  const viewerId = String(req.user.id);
+  const now = req.now;
+  if (await inRunningRace(demo, viewerId)) return res.status(409).json({ error: 'in_race' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await clearLobbyEntry(client, demo, viewerId);
+    const ins = await client.query(
+      `INSERT INTO races (kind, status, passage, starts_at, first_finish_at, finished_at, created_at, created_by, demo_owner, bot_level)
+       VALUES ('bot', 'running', $1, $2, NULL, NULL, $3, $4, $5, $6) RETURNING id`,
+      [pickText(), new Date(now.getTime() + 3000), now, req.user.username, demo, level]);
+    const raceId = ins.rows[0].id;
+    await client.query(
+      `INSERT INTO race_entries (race_id, lane, user_id, username, joined_at, last_seen_at)
+       VALUES ($1, 0, $2, $3, $4, $4)`,
+      [raceId, viewerId, req.user.username, now]);
+    let lane = 1;
+    for (const b of pickBots(level)) {
+      await client.query(
+        `INSERT INTO race_entries (race_id, lane, user_id, username, joined_at, last_seen_at, bot_wpm, bot_accuracy)
+         VALUES ($1, $2, NULL, $3, $4, $4, $5, $6)`,
+        [raceId, lane++, b.name, now, b.wpm, b.acc]);
+    }
+    await client.query('COMMIT');
+    return res.json({ ok: true, raceId });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}));
+
+// A ghost race: the viewer in lane 0, a replay of a past run in lane 1, on
+// the same passage the run was typed on. Body { raceId? }: without one the
+// ghost is the viewer's own best finished run; with one, the winner of that
+// finished human race, or that race's ghost again (Race again).
+app.post('/api/ghost-race', h(async (req, res) => {
+  const demo = demoOwner(req);
+  const viewerId = String(req.user.id);
+  const now = req.now;
+  const owner = ownerClause(demo, 2);
+  if (await inRunningRace(demo, viewerId)) return res.status(409).json({ error: 'in_race' });
+
+  // Find the run the ghost replays and the label its lane carries.
+  let src;
+  const sourceRaceId = req.body ? req.body.raceId : null;
+  if (sourceRaceId != null && sourceRaceId !== '') {
+    const r = await pool.query(
+      `SELECT * FROM races WHERE id = $1 AND ${owner.sql}`, [sourceRaceId, ...owner.values]);
+    const race = r.rows[0];
+    if (!race || race.status !== 'finished') return res.status(404).json({ error: 'no_ghost' });
+    const { rows: entries } = await pool.query(
+      'SELECT * FROM race_entries WHERE race_id = $1 ORDER BY lane', [race.id]);
+    if (race.kind === 'race') {
+      const winner = entries.find((e) => e.place === 1);
+      if (!winner || winner.user_id == null || winner.user_id === viewerId || winner.finished_at == null) {
+        return res.status(404).json({ error: 'no_ghost' });
+      }
+      src = { entry: winner, race, label: winner.username + "'s ghost" };
+    } else if (race.kind === 'ghost') {
+      const ghost = entries.find((e) => e.user_id == null);
+      if (!ghost) return res.status(404).json({ error: 'no_ghost' });
+      src = { entry: ghost, race, label: ghost.username };
+    } else {
+      return res.status(404).json({ error: 'no_ghost' });
+    }
+  } else {
+    const best = await pool.query(
+      `SELECT e.*, r.passage FROM race_entries e
+       JOIN races r ON r.id = e.race_id
+       WHERE e.user_id = $1 AND r.status = 'finished' AND r.finished_at IS NOT NULL
+         AND e.wpm > 0 AND ${owner.sql}
+       ORDER BY e.wpm DESC, r.finished_at DESC LIMIT 1`,
+      [viewerId, ...owner.values]);
+    if (!best.rows.length) return res.status(404).json({ error: 'no_ghost' });
+    src = { entry: best.rows[0], race: best.rows[0], label: 'Your ghost' };
+  }
+
+  // The ghost drives the copied timeline when the source run has a
+  // recording; runs from before the change (and the demo's made-up history)
+  // fall back to a steady speed that finishes in the same time.
+  const srcEntry = src.entry;
+  const srcStartMs = src.race.starts_at ? new Date(src.race.starts_at).getTime() : null;
+  const srcFinishMs = srcEntry.finished_at && srcStartMs != null
+    ? new Date(srcEntry.finished_at).getTime() - srcStartMs : null;
+  const timeline = src.race.passage
+    ? ghostTimeline(srcEntry.ghost_points, srcFinishMs, src.race.passage.length)
+    : null;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await clearLobbyEntry(client, demo, viewerId);
+    const ins = await client.query(
+      `INSERT INTO races (kind, status, passage, starts_at, first_finish_at, finished_at, created_at, created_by, demo_owner)
+       VALUES ('ghost', 'running', $1, $2, NULL, NULL, $3, $4, $5) RETURNING id`,
+      [src.race.passage, new Date(now.getTime() + 3000), now, req.user.username, demo]);
+    const raceId = ins.rows[0].id;
+    await client.query(
+      `INSERT INTO race_entries (race_id, lane, user_id, username, joined_at, last_seen_at)
+       VALUES ($1, 0, $2, $3, $4, $4)`,
+      [raceId, viewerId, req.user.username, now]);
+    await client.query(
+      `INSERT INTO race_entries (race_id, lane, user_id, username, joined_at, last_seen_at, bot_wpm, bot_accuracy, ghost_points)
+       VALUES ($1, 1, NULL, $2, $3, $3, $4, $5, $6)`,
+      [raceId, src.label, now, srcEntry.wpm, srcEntry.accuracy, timeline ? JSON.stringify(timeline) : null]);
+    await client.query('COMMIT');
+    return res.json({ ok: true, raceId });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}));
 // A race, live. Guest-readable; the passage only appears once it is running.
 app.get('/api/races/:id', h(async (req, res) => {
   const demo = demoOwner(req);
@@ -768,14 +942,23 @@ app.post('/api/races/:id/progress', h(async (req, res) => {
   const newProgress = Math.min(progress, cap, len);
 
   const finished = newProgress >= len;
+  // Every run records how far its racer had typed at each moment, so any of
+  // them can become a ghost later. Only moments that moved you forward are
+  // kept, and the recording is capped so a long race stays small.
+  const elapsedMs = now.getTime() - startMs;
   await pool.query(
     `UPDATE race_entries SET
        progress = GREATEST(progress, $1),
        keystrokes = GREATEST(keystrokes, $2),
        correct_keys = GREATEST(correct_keys, $3),
-       finished_at = CASE WHEN $4 AND finished_at IS NULL THEN $5 ELSE finished_at END
+       finished_at = CASE WHEN $4 AND finished_at IS NULL THEN $5 ELSE finished_at END,
+       ghost_points = CASE
+         WHEN $1 > progress AND COALESCE(jsonb_array_length(ghost_points), 0) < 400
+           THEN COALESCE(ghost_points, '[]'::jsonb) || jsonb_build_array($8::int, $9::int)
+         ELSE ghost_points END
      WHERE race_id = $6 AND user_id = $7`,
-    [newProgress, keystrokes, correctKeys, finished, now, r.id, String(req.user.id)]);
+    [newProgress, keystrokes, correctKeys, finished, now, r.id, String(req.user.id),
+      elapsedMs, newProgress]);
   if (finished) {
     await pool.query(
       'UPDATE races SET first_finish_at = COALESCE(first_finish_at, $1) WHERE id = $2',
