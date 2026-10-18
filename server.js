@@ -3,7 +3,7 @@ const path = require('path');
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
 const { pickText } = require('./lib/sentences');
-const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress } = require('./lib/scoring');
+const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress, foldEvents } = require('./lib/scoring');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -219,6 +219,21 @@ async function ensureSchema() {
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS race_entries_user
     ON race_entries (race_id, user_id) WHERE user_id IS NOT NULL`);
+  // Append-only log of typing progress: one row per accepted progress POST.
+  // Never updated or deleted, kept after the race settles, and read through
+  // a race id that has already passed ownerClause — so no demo_owner column.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS race_events (
+      race_id bigint NOT NULL REFERENCES races(id),
+      racer_id text NOT NULL,
+      seq int NOT NULL,
+      chars_typed int NOT NULL,
+      ts timestamptz NOT NULL,
+      PRIMARY KEY (race_id, racer_id, seq)
+    )`);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS race_events_race
+    ON race_events (race_id, seq)`);
 }
 
 // Deterministic randomness for the demo seed, so a preview reload always
@@ -768,25 +783,112 @@ app.post('/api/races/:id/progress', h(async (req, res) => {
   const newProgress = Math.min(progress, cap, len);
 
   const finished = newProgress >= len;
-  await pool.query(
-    `UPDATE race_entries SET
-       progress = GREATEST(progress, $1),
-       keystrokes = GREATEST(keystrokes, $2),
-       correct_keys = GREATEST(correct_keys, $3),
-       finished_at = CASE WHEN $4 AND finished_at IS NULL THEN $5 ELSE finished_at END
-     WHERE race_id = $6 AND user_id = $7`,
-    [newProgress, keystrokes, correctKeys, finished, now, r.id, String(req.user.id)]);
-  if (finished) {
-    await pool.query(
-      'UPDATE races SET first_finish_at = COALESCE(first_finish_at, $1) WHERE id = $2',
-      [now, r.id]);
+  // One transaction: the entries update takes the racer's row lock first, so
+  // two posts from the same racer serialize and each event gets its own seq.
+  // The logged chars_typed is the stored progress after the GREATEST update
+  // (its RETURNING), so the log is monotonic and its maximum equals
+  // race_entries.progress.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const upd = await client.query(
+      `UPDATE race_entries SET
+         progress = GREATEST(progress, $1),
+         keystrokes = GREATEST(keystrokes, $2),
+         correct_keys = GREATEST(correct_keys, $3),
+         finished_at = CASE WHEN $4 AND finished_at IS NULL THEN $5 ELSE finished_at END
+       WHERE race_id = $6 AND user_id = $7
+       RETURNING progress`,
+      [newProgress, keystrokes, correctKeys, finished, now, r.id, String(req.user.id)]);
+    if (!upd.rows.length) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(404).json({ error: 'not_in_race' });
+    }
+    await client.query(
+      `INSERT INTO race_events (race_id, racer_id, seq, chars_typed, ts)
+       SELECT $1, $2, COALESCE(MAX(seq), 0) + 1, $3, $4
+       FROM race_events WHERE race_id = $1 AND racer_id = $2`,
+      [r.id, String(req.user.id), upd.rows[0].progress, now]);
+    if (finished) {
+      await client.query(
+        'UPDATE races SET first_finish_at = COALESCE(first_finish_at, $1) WHERE id = $2',
+        [now, r.id]);
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    client.release();
+    throw err;
   }
+  client.release();
 
   const fresh = await pool.query('SELECT * FROM races WHERE id = $1', [r.id]);
   await settleRace(fresh.rows[0], now);
   const state = await raceResponse(req, r.id, demo);
   res.json({ ok: true, serverNow: now.toISOString(), race: state });
 }));
+
+// The append-only event log, for a reconnecting client: events after the
+  // given seq, plus the field's positions folded from the whole log. A GET,
+  // so guests can read it like any race, and never exposes racer ids — only
+  // lanes. Read-only apart from the shared settle step.
+  app.get('/api/races/:id/events', h(async (req, res) => {
+    const demo = demoOwner(req);
+    const owner = ownerClause(demo, 2);
+    const race = await pool.query(
+      `SELECT * FROM races WHERE id = $1 AND ${owner.sql}`, [req.params.id, ...owner.values]);
+    if (!race.rows.length) return res.status(404).json({ error: 'not_found' });
+    const r = race.rows[0];
+    if (demo != null) {
+      await updateBots(r, req.now);
+      const fresh = await pool.query('SELECT * FROM races WHERE id = $1', [r.id]);
+      Object.assign(r, fresh[0]);
+    }
+    await settleRace(r, req.now);
+
+    const since = Math.max(0, Math.floor(Number(req.query.since) || 0));
+    const { rows: events } = await pool.query(
+      `SELECT seq, chars_typed, ts, racer_id FROM race_events
+       WHERE race_id = $1 AND seq > $2
+       ORDER BY ts, seq`,
+      [r.id, since]);
+    const { rows: entries } = await pool.query(
+      'SELECT * FROM race_entries WHERE race_id = $1 ORDER BY lane', [r.id]);
+    const viewerId = req.user ? String(req.user.id) : null;
+    const laneOf = new Map(entries.map((e) => [e.user_id, e.lane]));
+    const startMs = r.starts_at ? new Date(r.starts_at).getTime() : null;
+    const total = r.passage ? r.passage.length : null;
+
+    const eventViews = events.map((ev) => ({
+      lane: laneOf.get(ev.racer_id) != null ? laneOf.get(ev.racer_id) : null,
+      isYou: viewerId != null && ev.racer_id === viewerId,
+      seq: ev.seq,
+      chars: ev.chars_typed,
+      ms: startMs != null ? new Date(ev.ts).getTime() - startMs : null,
+    }));
+    const folded = foldEvents(entries, events, total);
+    const positions = placeEntries(folded).map((e) => ({
+      lane: e.lane,
+      isYou: viewerId != null && e.user_id === String(viewerId),
+      progress: e.progress,
+      finished: e.finished_at != null,
+      finishedMs: e.finished_at && startMs != null ? new Date(e.finished_at).getTime() - startMs : null,
+    }));
+
+    const mine = viewerId != null ? entries.find((e) => e.user_id === viewerId) : null;
+    const lastSeq = events.length ? Math.max(...events.map((ev) => ev.seq)) : since;
+    res.json({
+      serverNow: req.now.toISOString(),
+      raceId: r.id,
+      status: r.status,
+      total,
+      lastSeq,
+      events: eventViews,
+      positions,
+      you: mine ? { progress: mine.progress, keystrokes: mine.keystrokes, correctKeys: mine.correct_keys } : null,
+    });
+  }));
 
 // The template ships no favicon file; index.html carries an inline SVG
 // icon instead. Answer 204 here so anything that still probes

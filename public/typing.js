@@ -39,5 +39,16 @@
     return { correct, wrong, wordComplete, done };
   }
 
-  return { typingState };
+  // Where resuming from `progress` characters typed correctly puts the
+  // committed boundary: the start of the current word (a mid-word reload
+  // restarts that word), or `progress` itself on a word boundary. The field
+  // is word by word, so the caret always sits at a word start.
+  function resumeCommitted(passage, progress) {
+    const text = String(passage);
+    const at = Math.max(0, Math.min(text.length, Math.floor(Number(progress) || 0)));
+    if (at <= 0) return 0;
+    return text.lastIndexOf(' ', at - 1) + 1;
+  }
+
+  return { typingState, resumeCommitted };
 });

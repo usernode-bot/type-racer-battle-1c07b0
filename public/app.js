@@ -157,7 +157,11 @@
   // when the bridge is around, the local clock otherwise).
   let serverOffsetMs = 0; // serverNow - localNow
   function nowMs() {
-    return (window.usernode && window.usernode.now ? window.usernode.now() : Date.now()) + serverOffsetMs;
+    // The bridge's usernode.now() hands back a Date, not a number: coerce it
+    // before adding the server offset, or every figure under the field reads
+    // NaN.
+    const local = window.usernode && window.usernode.now ? window.usernode.now() : Date.now();
+    return (local instanceof Date ? local.getTime() : Number(local)) + serverOffsetMs;
   }
   function absorbServerNow(iso) {
     if (!iso) return;
@@ -365,6 +369,9 @@
     finishedLocally: false,
     lastValue: '',
     lastPostAt: 0,
+    resumeAt: null, // chars the server had for you, from the event log
+    resumed: false,
+    lastSeq: 0, // highest event seq this page has seen
   };
 
   let raceTimer = null; // 1 s poll
@@ -382,9 +389,35 @@
       raceId, kind,
       passage: '', committed: 0, keystrokes: 0, correctKeys: 0,
       startedAt: null, finishedLocally: false, lastValue: '', lastPostAt: 0,
+      resumeAt: null, resumed: false, lastSeq: 0,
     });
+    // Mid-race reconnect (reload, reopen, back to your race): read the event
+    // log before the first poll so the passage and figures pick up where
+    // they were. If it fails, the race carries on as before.
+    fetchEvents(raceId, 0);
     pollRace(raceId);
     raceTimer = setInterval(() => pollRace(raceId), 1000);
+  }
+
+  // Read the race's event log since a seq. With since=0 on the way in, it
+  // tells us how far the server had you and seeds your running totals; after
+  // a dropped connection it checks your latest words landed and re-posts any
+  // the drop swallowed. Local typing state is never rolled back.
+  async function fetchEvents(raceId, since) {
+    try {
+      const data = await api('/api/races/' + raceId + '/events?since=' + since);
+      if (typing.raceId !== raceId) return;
+      typing.lastSeq = data.lastSeq || since;
+      if (since === 0 && data.status === 'running' && data.you) {
+        typing.resumeAt = data.you.progress;
+        typing.keystrokes = data.you.keystrokes;
+        typing.correctKeys = data.you.correctKeys;
+      }
+      if (since > 0 && data.you && !typing.finishedLocally
+        && localTypingProgress() > data.you.progress) {
+        postProgress(true);
+      }
+    } catch (_) { /* resume is a nicety, never a failure */ }
   }
 
   async function pollRace(raceId) {
@@ -392,7 +425,6 @@
     let data;
     try {
       data = await api('/api/races/' + raceId);
-      reconnecting = false;
     } catch (err) {
       if (typing.raceId !== raceId) return;
       if (!reconnecting) {
@@ -405,6 +437,11 @@
     if (typing.raceId !== raceId) return; // the viewer moved on
     const line = document.getElementById('reconnect');
     if (line) line.hidden = true;
+    const wasReconnecting = reconnecting;
+    reconnecting = false;
+    // Back after a drop: check the words typed while offline landed. The
+    // server keeps your furthest point, so this only ever posts more.
+    if (wasReconnecting && !typing.finishedLocally) fetchEvents(raceId, typing.lastSeq);
     absorbServerNow(data.serverNow);
     renderRace(data.race, data.demo);
   }
@@ -502,6 +539,16 @@
 
     if (!race.passage) return; // still waiting for the server's passage
     typing.passage = race.passage;
+    // First render after a mid-race reconnect: put the committed boundary at
+    // the start of the word you were on and let the figures carry on. The
+    // car never moves back — the server's stored progress keeps it there
+    // until you type past that spot.
+    if (typing.resumeAt > 0 && !typing.resumed && typing.committed === 0 && !typing.lastValue) {
+      typing.committed = Typing.resumeCommitted(typing.passage, typing.resumeAt);
+      typing.resumed = true;
+      const field = document.getElementById('type-field');
+      if (field) field.value = '';
+    }
     renderTypingArea(view, race, phase);
   }
 
