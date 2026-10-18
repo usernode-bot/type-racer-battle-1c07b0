@@ -2,8 +2,9 @@ const express = require('express');
 const path = require('path');
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
-const { pickText } = require('./lib/sentences');
-const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress } = require('./lib/scoring');
+const { pickText, pickPassage } = require('./lib/sentences');
+const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress, cleanMissedWords } = require('./lib/scoring');
+const { normalizeWord } = require('./public/typing');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -188,6 +189,10 @@ async function ensureSchema() {
       demo_owner text,
       demo_key text
     )`);
+  // Text choice for a race (the resolved pick, never 'any'); null for races
+  // started before the choice existed. Append-only columns, both nullable.
+  await pool.query('ALTER TABLE races ADD COLUMN IF NOT EXISTS language text');
+  await pool.query('ALTER TABLE races ADD COLUMN IF NOT EXISTS category text');
   // One open lobby for the real app, and one per demo viewer on staging.
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS races_one_lobby
@@ -219,6 +224,8 @@ async function ensureSchema() {
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS race_entries_user
     ON race_entries (race_id, user_id) WHERE user_id IS NOT NULL`);
+  // Normalized words a racer mistyped, one item per missed occurrence.
+  await pool.query('ALTER TABLE race_entries ADD COLUMN IF NOT EXISTS missed_words text[]');
 }
 
 // Deterministic randomness for the demo seed, so a preview reload always
@@ -380,6 +387,8 @@ async function raceResponse(req, raceId, demo) {
     status: race.status,
     startsAt: race.starts_at ? new Date(race.starts_at).toISOString() : null,
     closesAt: closesAt(race),
+    language: race.language,
+    category: race.category,
     total: sharePassage && race.passage ? race.passage.length : null,
     passage: sharePassage ? race.passage : null,
     entries: entries.map((e) => entryView(e, viewerId, race, settled)),
@@ -414,6 +423,16 @@ const DEMO_HISTORY = [
   { place: 1, size: 2, kind: 'race', wpm: 74, acc: 99, hoursAgo: 146 },
 ];
 
+// One or two of a passage's own words, as the demo viewer's missed words.
+function demoMissedWords(passage, rand) {
+  const words = String(passage || '').split(' ').map(normalizeWord).filter(Boolean);
+  if (!words.length) return [];
+  const n = 1 + Math.floor(rand() * 2);
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(words[Math.floor(rand() * words.length)]);
+  return out;
+}
+
 // Fill a finished demo race with the viewer and enough made-up racers to
 // make up the field, each placed behind the viewer's mock place.
 async function seedDemoHistory(req, demo) {
@@ -423,14 +442,28 @@ async function seedDemoHistory(req, demo) {
     const key = 'history-' + (i + 1);
     const finishedAt = new Date(req.now.getTime() - h.hoursAgo * 3600000);
     const startsAt = new Date(finishedAt.getTime() - Math.round(25000 + rand() * 20000));
-    const passage = pickText(rand);
+    const choice = pickPassage(rand() < 0.5 ? { language: 'id' } : {}, rand);
+    const passage = choice.passage;
     const ins = await pool.query(
-      `INSERT INTO races (kind, status, passage, starts_at, first_finish_at, finished_at, created_at, created_by, demo_owner, demo_key)
-       VALUES ($1, 'finished', $2, $3, $4, $5, $3, $6, $7, $8)
+      `INSERT INTO races (kind, status, passage, starts_at, first_finish_at, finished_at, created_at, created_by, demo_owner, demo_key, language, category)
+       VALUES ($1, 'finished', $2, $3, $4, $5, $3, $6, $7, $8, $9, $10)
        ON CONFLICT (demo_owner, demo_key) WHERE demo_key IS NOT NULL DO NOTHING RETURNING id`,
       [h.kind, passage, startsAt, h.kind === 'race' ? finishedAt : null, finishedAt,
-        req.user.username, demo, key]);
-    if (!ins.rows.length) continue;
+        req.user.username, demo, key, choice.language, choice.category]);
+    if (!ins.rows.length) {
+      // A row seeded by an earlier build of the app: backfill its viewer
+      // entry's missed words where the column is still NULL.
+      const old = await pool.query(
+        'SELECT id, passage FROM races WHERE demo_owner = $1 AND demo_key = $2', [demo, key]);
+      if (old.rows.length) {
+        await pool.query(
+          `UPDATE race_entries e SET missed_words = $1
+           FROM races r
+           WHERE e.race_id = r.id AND r.id = $2 AND e.user_id = $3 AND e.missed_words IS NULL`,
+          [demoMissedWords(old.rows[0].passage, rand), old.rows[0].id, String(req.user.id)]);
+      }
+      continue;
+    }
     const raceId = ins.rows[0].id;
 
     // The viewer's own entry, already settled with the mock figures.
@@ -447,12 +480,12 @@ async function seedDemoHistory(req, demo) {
     }
     const viewerLane = 0;
     await pool.query(
-      `INSERT INTO race_entries (race_id, lane, user_id, username, joined_at, last_seen_at, progress, keystrokes, correct_keys, finished_at, place, wpm, accuracy, bot_wpm, bot_accuracy)
-       VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, NULL, NULL)
+      `INSERT INTO race_entries (race_id, lane, user_id, username, joined_at, last_seen_at, progress, keystrokes, correct_keys, finished_at, place, wpm, accuracy, bot_wpm, bot_accuracy, missed_words)
+       VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12, NULL, NULL, $13)
        ON CONFLICT DO NOTHING`,
       [raceId, viewerLane, String(req.user.id), req.user.username, startsAt, passage.length,
         Math.round(passage.length * 100 / h.acc), passage.length, finishedAt,
-        h.place, h.wpm, h.acc]);
+        h.place, h.wpm, h.acc, demoMissedWords(passage, rand)]);
     for (const o of others) {
       await pool.query(
         `INSERT INTO race_entries (race_id, lane, user_id, username, joined_at, last_seen_at, progress, keystrokes, correct_keys, finished_at, place, wpm, accuracy, bot_wpm, bot_accuracy)
@@ -567,6 +600,8 @@ app.get('/api/home', h(async (req, res) => {
   // stats: no best speed, no accuracy average, no wins.
   const stats = { bestWpm: 0, avgAccuracy: 0, wins: 0, races: 0 };
   let recent = [];
+  let week = [];
+  let missedWords = [];
   if (viewerId != null) {
     const agg = await pool.query(
       `SELECT e.wpm, e.accuracy, e.place FROM race_entries e
@@ -597,6 +632,37 @@ app.get('/api/home', h(async (req, res) => {
       won: r.kind === 'race' && r.place === 1,
       finishedAt: r.finished_at ? new Date(r.finished_at).toISOString() : null,
     }));
+
+    // Speed per day for the Last 7 days chart: races and practice runs
+    // alike, finished in the last eight days (the extra day lets the client
+    // cover the viewer's local midnight).
+    const owner3 = ownerClause(demo, 3);
+    const weekQ = await pool.query(
+      `SELECT e.wpm, r.finished_at FROM race_entries e
+       JOIN races r ON r.id = e.race_id
+       WHERE e.user_id = $1 AND r.status = 'finished' AND e.wpm IS NOT NULL
+         AND r.finished_at >= $2 AND ${owner3.sql}
+       ORDER BY r.finished_at DESC NULLS LAST LIMIT 500`,
+      [viewerId, new Date(req.now.getTime() - 8 * 86400000), ...owner3.values]);
+    week = weekQ.rows.map((r) => ({
+      finishedAt: new Date(r.finished_at).toISOString(),
+      wpm: r.wpm,
+    }));
+
+    // The words mistyped most often in the viewer's last 20 finished runs.
+    const owner2 = ownerClause(demo, 2);
+    const missQ = await pool.query(
+      `WITH last20 AS (
+         SELECT e.missed_words FROM race_entries e
+         JOIN races r ON r.id = e.race_id
+         WHERE e.user_id = $1 AND r.status = 'finished' AND ${owner2.sql}
+         ORDER BY r.finished_at DESC NULLS LAST LIMIT 20
+       )
+       SELECT word, COUNT(*)::int AS count
+       FROM last20, unnest(missed_words) AS word
+       GROUP BY word ORDER BY count DESC, word LIMIT 5`,
+      [viewerId, ...owner2.values]);
+    missedWords = missQ.rows.map((r) => ({ word: r.word, count: r.count }));
   }
 
   res.json({
@@ -606,6 +672,8 @@ app.get('/api/home', h(async (req, res) => {
     activeRaceId,
     stats,
     recent,
+    week,
+    missedWords,
   });
 }));
 
@@ -702,10 +770,16 @@ app.post('/api/races/:id/start', h(async (req, res) => {
   const live = await pool.query('SELECT COUNT(*)::int AS n FROM race_entries WHERE race_id = $1', [raceId]);
   if (live.rows[0].n < 2) return res.status(409).json({ error: 'need_two' });
 
+  // The racer who presses Start picks the text for everyone: their body's
+  // language and category (missing, 'any' or unknown mean a random pick).
+  const choice = pickPassage({
+    language: req.body && req.body.language,
+    category: req.body && req.body.category,
+  });
   const started = await pool.query(
-    `UPDATE races SET status = 'running', passage = $1, starts_at = $2
+    `UPDATE races SET status = 'running', passage = $1, starts_at = $2, language = $4, category = $5
      WHERE id = $3 AND status = 'lobby' RETURNING id`,
-    [pickText(), new Date(now.getTime() + 5000), raceId]);
+    [choice.passage, new Date(now.getTime() + 5000), raceId, choice.language, choice.category]);
   if (!started.rows.length) return res.status(409).json({ error: 'already_started' });
   res.json({ ok: true, raceId });
 }));
@@ -715,10 +789,14 @@ app.post('/api/practice', h(async (req, res) => {
   const demo = demoOwner(req);
   const now = req.now;
   const startsAt = new Date(now.getTime() + 3000);
+  const choice = pickPassage({
+    language: req.body && req.body.language,
+    category: req.body && req.body.category,
+  });
   const ins = await pool.query(
-    `INSERT INTO races (kind, status, passage, starts_at, first_finish_at, finished_at, created_at, created_by, demo_owner, demo_key)
-     VALUES ('practice', 'running', $1, $2, NULL, NULL, $3, $4, $5, NULL) RETURNING id`,
-    [pickText(), startsAt, now, req.user.username, demo]);
+    `INSERT INTO races (kind, status, passage, starts_at, first_finish_at, finished_at, created_at, created_by, demo_owner, demo_key, language, category)
+     VALUES ('practice', 'running', $1, $2, NULL, NULL, $3, $4, $5, NULL, $6, $7) RETURNING id`,
+    [choice.passage, startsAt, now, req.user.username, demo, choice.language, choice.category]);
   await pool.query(
     `INSERT INTO race_entries (race_id, lane, user_id, username, joined_at, last_seen_at)
      VALUES ($1, 0, $2, $3, $4, $4)`,
@@ -768,14 +846,26 @@ app.post('/api/races/:id/progress', h(async (req, res) => {
   const newProgress = Math.min(progress, cap, len);
 
   const finished = newProgress >= len;
-  await pool.query(
-    `UPDATE race_entries SET
+  // Missed words come with the progress posts, so a racer who runs out of
+  // time still has theirs counted. The list is capped to the race's own
+  // passage words, and a post only overwrites a longer one: a late, older
+  // post never shrinks the list.
+  const missed = cleanMissedWords(r.passage, req.body && req.body.missedWords);
+  let updateSql = `UPDATE race_entries SET
        progress = GREATEST(progress, $1),
        keystrokes = GREATEST(keystrokes, $2),
        correct_keys = GREATEST(correct_keys, $3),
-       finished_at = CASE WHEN $4 AND finished_at IS NULL THEN $5 ELSE finished_at END
-     WHERE race_id = $6 AND user_id = $7`,
-    [newProgress, keystrokes, correctKeys, finished, now, r.id, String(req.user.id)]);
+       finished_at = CASE WHEN $4 AND finished_at IS NULL THEN $5 ELSE finished_at END`;
+  const params = [newProgress, keystrokes, correctKeys, finished, now];
+  if (missed != null) {
+    updateSql += `,
+       missed_words = CASE WHEN cardinality($8::text[]) >= COALESCE(cardinality(missed_words), 0)
+                           THEN $8::text[] ELSE missed_words END`;
+  }
+  updateSql += ` WHERE race_id = $6 AND user_id = $7`;
+  params.push(r.id, String(req.user.id));
+  if (missed != null) params.push(missed);
+  await pool.query(updateSql, params);
   if (finished) {
     await pool.query(
       'UPDATE races SET first_finish_at = COALESCE(first_finish_at, $1) WHERE id = $2',

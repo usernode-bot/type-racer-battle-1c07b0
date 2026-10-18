@@ -100,9 +100,11 @@ tables you've marked private), etc.
 Race friends by typing sentences fast and accurately in a 2–20 player speed
 battle. One screen's job: get into a race and finish it. Races live on the
 server in the `races` / `race_entries` tables; clients poll about once a
-second, no websocket. Passages ship with the app in `lib/sentences.js`, two
-short everyday sentences per race, so no passage or custom-text feature
-should ever grow outside that pool without a reason.
+second, no websocket. Passages ship with the app in `lib/sentences.js` as
+language (English, Bahasa Indonesia) and category (quotes, light news,
+everyday words, code) pools — two short sentences per race, both from one
+pool — so no passage or custom-text feature should ever grow outside those
+pools without a reason.
 
 ## Design
 
@@ -134,7 +136,10 @@ it, and updates it when a request changes the look on purpose.
 Components beyond the starter kit, all in the kit file: `track`, `lane`,
 `lane-label`, `lane-run`, `lane-thin` (24 px lanes from nine racers),
 `lane-you`, `car`, `passage` with `ch-ok` / `ch-bad` / `ch-rest` / `caret`,
-`badge` / `badge-win`, `stats` / `stat`, and `field-error`.
+`badge` / `badge-win`, `stats` / `stat`, `week` / `week-row` / `week-day` /
+`week-bar` / `week-fill` / `week-fig` (the 7 day chart, drawn like a small
+version of the track — the bars are neutral grey, never green), and
+`field-error`.
 
 The kit is in `styles/tailwind-input.css`: colour tokens with a light and
 a dark value (named in `tailwind.config.js`), and a few components
@@ -165,6 +170,13 @@ Re-theme by changing the token values there, keeping every text pair at
   `demo_owner`.
 - Passage characters stay within `[A-Za-z ,.]` — single spaces, a full stop
   at the end, no quotes or apostrophes that phone keyboards would curl.
+  Indonesian passages write reduplication with a space, never a hyphen
+  (no kupu-kupu); code passages read like code through dotted names only
+  (item.price, pengguna.nama), never brackets or symbols.
+- `race_entries.missed_words` is per entry, one normalized word per missed
+  occurrence, capped to the race's own passage words. Normalize with
+  `Typing.normalizeWord` (lowercase, trailing commas and full stops off,
+  inner dots kept).
 - All race time decisions use `req.now`, written to the database as query
   parameters, never SQL `NOW()`.
 - One open lobby at a time, enforced by the `races_one_lobby` partial unique

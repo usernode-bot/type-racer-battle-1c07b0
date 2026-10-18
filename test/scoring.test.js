@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress } = require('../lib/scoring');
+const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress, cleanMissedWords } = require('../lib/scoring');
 
 test('wpm counts five characters per word, rounded', () => {
   // 300 chars in 60 s = 60 words = 60 wpm.
@@ -83,4 +83,29 @@ test('maxPlausibleProgress caps at 25 characters per second', () => {
   assert.strictEqual(maxPlausibleProgress(-5), 0);
   // 30 s in: 750 chars, far past any real passage.
   assert.strictEqual(maxPlausibleProgress(30000), 750);
+});
+
+const missPassage = 'The little boat. Gulls circled.';
+
+test('cleanMissedWords keeps only words of the passage, normalized', () => {
+  assert.deepStrictEqual(
+    cleanMissedWords(missPassage, ['The', 'Gulls,', 'zebra', '']),
+    ['the', 'gulls']);
+  // A word kept no more times than it appears in the passage.
+  assert.deepStrictEqual(cleanMissedWords(missPassage, ['the', 'the', 'the']), ['the']);
+  assert.deepStrictEqual(
+    cleanMissedWords(missPassage, ['the', 'little', 'boat', 'gulls', 'circled', 'the']),
+    ['the', 'little', 'boat', 'gulls', 'circled']);
+  // Inner dots survive, so a code name stays one whole word; 'price' alone
+  // is not a word of the passage, and the name appears only once in it.
+  const code = 'For each item in cart, add item.price to the total.';
+  assert.deepStrictEqual(
+    cleanMissedWords(code, ['item.price', 'ITEM.PRICE.', 'price']),
+    ['item.price']);
+});
+
+test('cleanMissedWords returns null for a non-array and [] for an empty list', () => {
+  assert.strictEqual(cleanMissedWords(missPassage, 'nope'), null);
+  assert.strictEqual(cleanMissedWords(missPassage, null), null);
+  assert.deepStrictEqual(cleanMissedWords(missPassage, []), []);
 });
