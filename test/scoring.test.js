@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress } = require('../lib/scoring');
+const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress, foldEvents } = require('../lib/scoring');
 
 test('wpm counts five characters per word, rounded', () => {
   // 300 chars in 60 s = 60 words = 60 wpm.
@@ -83,4 +83,86 @@ test('maxPlausibleProgress caps at 25 characters per second', () => {
   assert.strictEqual(maxPlausibleProgress(-5), 0);
   // 30 s in: 750 chars, far past any real passage.
   assert.strictEqual(maxPlausibleProgress(30000), 750);
+});
+
+const foldEntries = [
+  { lane: 0, user_id: 'u1', progress: 0, finished_at: null },
+  { lane: 1, user_id: 'u2', progress: 0, finished_at: null },
+  { lane: 2, user_id: null, progress: 33, finished_at: new Date(1000) }, // a demo bot
+];
+
+test('foldEvents takes the furthest progress, even out of order', () => {
+  const events = [
+    { racer_id: 'u1', seq: 4, chars_typed: 40, ts: new Date(4000) },
+    { racer_id: 'u1', seq: 1, chars_typed: 10, ts: new Date(1000) },
+    { racer_id: 'u1', seq: 3, chars_typed: 25, ts: new Date(3000) },
+    { racer_id: 'u1', seq: 2, chars_typed: 25, ts: new Date(2500) },
+  ];
+  const folded = foldEvents(foldEntries, events, 100);
+  assert.strictEqual(folded[0].progress, 40);
+  // The stored entry is never mutated.
+  assert.strictEqual(foldEntries[0].progress, 0);
+});
+
+test('foldEvents marks the finish at the first full-length event', () => {
+  const events = [
+    { racer_id: 'u2', seq: 1, chars_typed: 60, ts: new Date(1000) },
+    { racer_id: 'u2', seq: 2, chars_typed: 90, ts: new Date(2000) },
+    { racer_id: 'u2', seq: 3, chars_typed: 100, ts: new Date(3000) },
+  ];
+  const folded = foldEvents(foldEntries, events, 100);
+  assert.strictEqual(folded[1].progress, 100);
+  assert.strictEqual(folded[1].finished_at.getTime(), 3000); // lowest seq reaching total
+  assert.strictEqual(folded[2].finished_at.getTime(), 1000); // untouched
+});
+
+test('foldEvents keeps entries without events, as stored', () => {
+  const events = [{ racer_id: 'u1', seq: 1, chars_typed: 10, ts: new Date(1000) }];
+  const folded = foldEvents(foldEntries, events, 100);
+  assert.strictEqual(folded[2].progress, 33);
+  assert.strictEqual(folded[2].finished_at.getTime(), 1000);
+  // A racer who appears in entries but not in events also keeps its values.
+  assert.strictEqual(folded[1].progress, 0);
+  assert.strictEqual(folded[1].finished_at, null);
+});
+
+test('folded entries place like the stored rows when the log agrees', () => {
+  // A log consistent with the stored rows: u2 finishes at 3000 with 100,
+  // u1 is at 40 with no finish. Folding must not reorder the field.
+  const stored = [
+    { lane: 0, user_id: 'u1', progress: 40, finished_at: null },
+    { lane: 1, user_id: 'u2', progress: 100, finished_at: new Date(3000) },
+  ];
+  const events = [
+    { racer_id: 'u1', seq: 1, chars_typed: 20, ts: new Date(1000) },
+    { racer_id: 'u1', seq: 2, chars_typed: 40, ts: new Date(2000) },
+    { racer_id: 'u2', seq: 1, chars_typed: 100, ts: new Date(3000) },
+  ];
+  const byLog = placeEntries(foldEvents(stored, events, 100)).map((e) => e.lane);
+  const byRows = placeEntries(stored).map((e) => e.lane);
+  assert.deepStrictEqual(byLog, byRows);
+  assert.deepStrictEqual(byLog, [1, 0]); // finisher first
+});
+
+test('settleDue agrees on folded and stored entries', () => {
+  const events = [
+    { racer_id: 'u1', seq: 1, chars_typed: 40, ts: new Date(2000) },
+    { racer_id: 'u2', seq: 1, chars_typed: 100, ts: new Date(3000) },
+  ];
+  const stored = [
+    { lane: 0, user_id: 'u1', progress: 40, finished_at: null },
+    { lane: 1, user_id: 'u2', progress: 100, finished_at: new Date(3000) },
+  ];
+  const folded = foldEvents(stored, events, 100);
+  const firstFinish = { ...baseRace, first_finish_at: new Date(3000) };
+  for (const at of [2000, 25000, 32000, 33000, 180000]) {
+    assert.strictEqual(
+      settleDue(firstFinish, folded, new Date(at)),
+      settleDue(firstFinish, stored, new Date(at)),
+      'settleDue diverged at ' + at);
+  }
+  // And the folded entries are what actually settle the race: one unfinished
+  // racer holds it open until 30 s after the first finish.
+  assert.strictEqual(settleDue(firstFinish, folded, new Date(32000)), false);
+  assert.strictEqual(settleDue(firstFinish, folded, new Date(33000)), true);
 });

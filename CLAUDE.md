@@ -170,6 +170,8 @@ Re-theme by changing the token values there, keeping every text pair at
 - One open lobby at a time, enforced by the `races_one_lobby` partial unique
   index on `COALESCE(demo_owner, '') WHERE status = 'lobby'`; "join" reuses
   it or races to create it. Any racer in it can start it once two are in.
+- `race_events` is append-only, keyed by race id, never filtered by `demo_owner`,
+  and kept after settling.
 - The typing field is word by word (`public/typing.js`): the field holds the
   current word, clears when the word and its space are right, and the car's
   position is exactly how far the racer has typed correctly.
