@@ -55,8 +55,24 @@ module.exports = {
         danger: token('danger'),
         'on-danger': token('on-danger'),
         focus: token('focus'), // the keyboard focus ring
-        track: token('track'), // the lane tarmac
+        track: token('track'), // the asphalt of the race scene
         'lane-mark': token('lane-mark'), // the dashed lines between lanes
+        sky: token('sky'), // the race scene's fixed palette
+        'sky-low': token('sky-low'),
+        skyline: token('skyline'),
+        tree: token('tree'),
+        'tree-dark': token('tree-dark'),
+        wall: token('wall'),
+        'wall-post': token('wall-post'),
+        curb: token('curb'),
+        hud: token('hud'), // badges, name tags, dashboard
+        'on-hud': token('on-hud'),
+        'hud-muted': token('hud-muted'),
+        go: token('go'), // green light, your tag, your lane tint
+        'on-go': token('on-go'),
+        stop: token('stop'), // red light, gauge red zone
+        bad: token('bad'), // wrong letters in the strip
+        needle: token('needle'), // gauge needle
         'car-1': token('car-1'), // racing liveries, handed out by lane
         'car-2': token('car-2'),
         'car-3': token('car-3'),

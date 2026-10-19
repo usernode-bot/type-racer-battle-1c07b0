@@ -109,32 +109,55 @@ should ever grow outside that pool without a reason.
 This app's look. The first real version set it; every later change follows
 it, and updates it when a request changes the look on purpose.
 
-- **Palette:** cool tarmac greys for everything neutral (ground, surface,
-  raised, text, muted, line); one action colour, start-light green
-  (`--accent`), used only for the primary button, your own lane's tint, the
-  winner badge and the typing caret; red (`--danger`) only for wrong letters
-  and their hint; two track colours (`--track` tarmac, `--lane-mark` dashed
-  lines); and six racing liveries (`--car-1` red … `--car-6` pink) handed
-  out by lane and repeating from lane 7. Green stays out of the liveries so
-  "go" keeps meaning go.
-- **Signature element:** the race track — horizontal lanes of grey tarmac
-  separated by dashed lane markings, a start line on the left, a checkered
-  finish line on the right, a small side-view car in each racer's livery.
-  The same track is the lobby's starting grid and the race's live view, so
-  joining literally puts your car on the line. The car's `left` position is
-  exactly how far the racer has typed correctly.
+- **Palette:** the page around the scene follows the viewer's theme with
+  cool tarmac greys (ground, surface, raised, text, muted, line), one action
+  colour, start-light green (`--accent`), used only for the primary button
+  and the winner badge, and red (`--danger`) only for the typing field's
+  mistake ring and hint. The scene itself is a **fixed illustrated palette**
+  declared once in `:root` and deliberately NOT overridden in `.dark` (see
+  the "race scene" block in `styles/tailwind-input.css`): sky blue, skyline
+  blue, tree greens, a grey wall with posts, a red-and-white barrier
+  (`--curb` alternating with `--lane-mark`), grey tarmac with dashed lane
+  lines, a dark HUD (badges, name tags, the dashboard, the checkered
+  finish), a green start light, a red stop light, a light-blue needle, and
+  six racing liveries (`--car-1` red … `--car-6` pink) handed out by lane
+  and repeating from lane 7. Green stays out of the liveries so "go" keeps
+  meaning go.
+- **Signature element:** the illustrated city highway scene — a blue sky
+  gradient with a skyline and a band of trees, a grey wall with posts, a
+  red-and-white barrier, the multi-lane highway with a white start line on
+  the left and a checkered finish on the right, a side-view car with a name
+  tag in each racer's livery. The same scene is the lobby's starting grid
+  (an "Open lane" tag where the next racer goes) and the race's live view,
+  so joining literally puts your car on the line. The car's `left` position
+  is exactly how far the racer has typed correctly.
+- **HUD and dashboard:** on the sky, a dark speed badge (a big monospace
+  wpm figure, a two-dot start light — red before Go, green from Go) and a
+  dark clock badge (the countdown, then the time left). Under the road, a
+  dark dashboard: a speedometer gauge (0–10 read ×10 wpm, red zone from 8,
+  needle at exactly the wpm figure) beside the passage strip — one large
+  monospace line that slides left as you type, typed-right letters muted,
+  mistakes red on red, a green caret where you are. The race view is wider
+  (`max-w-3xl`) than the lobby (`max-w-lg`).
+- **Name tags:** every car wears one — other racers' names, yours green. In
+  a race your green tag reads `#N`, your live place; near the start the tag
+  sits in front of the car and once the car is well along it flips behind
+  (`car-tag-ahead`).
 - **Type:** system sans for everything except the typing vernacular — the
-  passage, the clock and every speed and accuracy figure are monospace
-  (`font-mono`), so each letter has its own slot and the figures line up.
-  Scale: `text-title`, `text-heading`, `text-body`, `text-small`.
-- **Both looks:** the neutrals, accent and liveries all carry a light and a
-  dark value in `styles/tailwind-input.css`; the app follows the viewer's
-  Homeroom theme, it is not a fixed-look game scene.
+  passage strip, the clock, every speed figure and the gauge numbers are
+  monospace (`font-mono`), so each letter has its own slot and the figures
+  line up. Scale: `text-title`, `text-heading`, `text-body`, `text-small`.
+- **Both looks:** everything around the scene carries a light and a dark
+  value in `styles/tailwind-input.css` and follows the viewer's Homeroom
+  theme; the scene is the one fixed-look exception and is identical in both.
 
-Components beyond the starter kit, all in the kit file: `track`, `lane`,
-`lane-label`, `lane-run`, `lane-thin` (24 px lanes from nine racers),
-`lane-you`, `car`, `passage` with `ch-ok` / `ch-bad` / `ch-rest` / `caret`,
-`badge` / `badge-win`, `stats` / `stat`, and `field-error`.
+Components beyond the starter kit, all in the kit file: `scene`,
+`scene-backdrop` (+ `-low`, holding the scene SVG), `curb`, `track`,
+`lane`, `lane-you`, `lane-thin` (28 px lanes from nine racers), `car`,
+`car-svg`, `car-tag` (+ `-you`, `-ahead`, `-open`), `hud` / `hud-badge` /
+`hud-figure` / `hud-unit`, `signal`, `dash`, `gauge` (dial, needle) and
+`strip` with `ch-ok` / `ch-bad` / `ch-rest` / `caret`, plus `badge` /
+`badge-win`, `stats` / `stat`, and `field-error`.
 
 The kit is in `styles/tailwind-input.css`: colour tokens with a light and
 a dark value (named in `tailwind.config.js`), and a few components
