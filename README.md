@@ -24,8 +24,18 @@ as they type, and the first car across the checkered line wins.
   countdown. Practice results land in your races but never count as wins.
 
 Races live on the server; each screen checks about once a second for live
-progress. The passage ships with the app: two short everyday sentences per
-race, kept to plain letters so phone keyboards can always match them.
+progress. The passage ships with the app: two short sentences per race, kept
+to plain letters so phone keyboards can always match them. In the lobby you
+pick what you type — a language (English or Bahasa Indonesia) and a category
+(quotes, light news, everyday words or code), each defaulting to Any — and
+your choice is used for practice and for races you start.
+
+## Your stats
+
+The lobby's stats area shows your best speed, average accuracy and wins of
+your last races, a **Last 7 days** chart of your average speed per day
+(races and practice runs alike), the words you mistyped most often in your
+last 20 runs, and your recent races.
 
 ## Development
 

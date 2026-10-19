@@ -246,4 +246,36 @@
   .stat b {
     @apply block text-heading font-semibold;
   }
+
+  /* ── The Last 7 days chart ──
+   * A small version of the race track: one row per day, the day name in the
+   * same 92 px column as a lane's racer name, a tarmac bar with a neutral
+   * grey fill (green stays reserved for go), the speed in mono at the end.
+   * The fill's width is set inline, like the car's `left`.
+   *   <ul class="week">
+   *     <li class="week-row">
+   *       <span class="week-day">Today</span>
+   *       <span class="week-bar"><span class="week-fill" style="width:…"></span></span>
+   *       <span class="week-fig">82 wpm</span>
+   *     </li> …
+   *   </ul>
+   */
+  .week {
+    @apply flex flex-col gap-2 rounded-xl border border-line bg-surface px-4 py-3;
+  }
+  .week-row {
+    @apply flex min-h-6 items-center gap-2;
+  }
+  .week-day {
+    @apply w-[92px] flex-none text-small;
+  }
+  .week-bar {
+    @apply h-3 min-w-0 flex-1 overflow-hidden rounded-full bg-track;
+  }
+  .week-fill {
+    @apply block h-full rounded-full bg-muted;
+  }
+  .week-fig {
+    @apply w-16 flex-none text-right font-mono text-small;
+  }
 }

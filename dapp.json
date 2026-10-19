@@ -18,6 +18,11 @@
       "expectText": "Staging demo",
       "visual": true,
       "impact": ["public/**", "server.js", "lib/**", "styles/**", "tailwind.config.js"]
+    },
+    {
+      "name": "Demo stats show the week and missed words",
+      "path": "/?demo=1",
+      "expectText": "Most missed words"
     }
   ],
   "governance": {

@@ -76,6 +76,68 @@
     return svg;
   }
 
+  // ── Text choice ──────────────────────────────────────────────────────────
+  // Language and category pickers, remembered on this device. 'any' means a
+  // random pick for each race. When localStorage throws (privacy settings in
+  // the frame) the choice still works for the session and resets on reload.
+  const LANGUAGE_NAMES = { en: 'English', id: 'Bahasa Indonesia' };
+  const CATEGORY_NAMES = { quotes: 'Quotes', news: 'Light news', everyday: 'Everyday words', code: 'Code' };
+  const LANGUAGE_OPTIONS = [['any', 'Any language'], ['en', 'English'], ['id', 'Bahasa Indonesia']];
+  const CATEGORY_OPTIONS = [['any', 'Any category'], ['quotes', 'Quotes'], ['news', 'Light news'], ['everyday', 'Everyday words'], ['code', 'Code']];
+
+  const textChoice = { language: 'any', category: 'any' };
+  try {
+    const saved = JSON.parse(localStorage.getItem('trb-text') || 'null');
+    if (saved && typeof saved === 'object') {
+      if (LANGUAGE_OPTIONS.some(([v]) => v === saved.language)) textChoice.language = saved.language;
+      if (CATEGORY_OPTIONS.some(([v]) => v === saved.category)) textChoice.category = saved.category;
+    }
+  } catch (_) { /* no storage: keep Any for the session */ }
+  function saveTextChoice() {
+    try { localStorage.setItem('trb-text', JSON.stringify(textChoice)); } catch (_) {}
+  }
+
+  // Built once; re-appended on every renderLobby so the once-a-second lobby
+  // rebuild never resets an open select.
+  const textPicker = (function buildPicker() {
+    const wrap = el('section');
+    wrap.id = 'text-picker';
+    wrap.appendChild(text('h2', 'section-label', 'Text to type'));
+    const grid = el('div', 'grid grid-cols-2 gap-3');
+    const make = (labelText, options, key) => {
+      const box = el('div');
+      box.appendChild(text('label', 'mb-1.5 block text-small font-medium', labelText));
+      const sel = el('select', 'field');
+      for (const [v, label] of options) {
+        const o = document.createElement('option');
+        o.value = v;
+        o.textContent = label;
+        sel.appendChild(o);
+      }
+      sel.value = textChoice[key];
+      sel.addEventListener('change', () => {
+        textChoice[key] = sel.value;
+        saveTextChoice();
+      });
+      box.appendChild(sel);
+      return box;
+    };
+    grid.appendChild(make('Language', LANGUAGE_OPTIONS, 'language'));
+    grid.appendChild(make('Category', CATEGORY_OPTIONS, 'category'));
+    wrap.appendChild(grid);
+    wrap.appendChild(text('p', 'mt-2 px-1 text-small text-muted',
+      'Used for practice and for races you start.'));
+    return wrap;
+  })();
+
+  // "Quotes in Bahasa Indonesia" — the label shown in a race that has both.
+  function textChoiceLabel(race) {
+    const language = LANGUAGE_NAMES[race.language];
+    const category = CATEGORY_NAMES[race.category];
+    if (!language || !category) return '';
+    return category + ' in ' + language;
+  }
+
   // The track: one lane per racer plus, in the lobby, one open lane. The car
   // moves by an inline `left`, which the .car component transitions between
   // polls.
@@ -284,6 +346,10 @@
     }
     view.appendChild(card);
 
+    // The text choice applies to practice and to races you start, so it sits
+    // between the two. The node is reused, not rebuilt, per poll.
+    view.appendChild(textPicker);
+
     const practice = el('button', 'btn-secondary w-full');
     practice.innerHTML = STOPWATCH_SVG;
     practice.querySelector('svg').classList.add('h-5', 'w-5');
@@ -305,6 +371,20 @@
     cells.appendChild(statCell(String(stats.wins), 'wins of ' + stats.races, false));
     statsWrap.appendChild(cells);
     view.appendChild(statsWrap);
+
+    // Last 7 days: average speed per local day, today first. Races and
+    // practice runs count alike.
+    const weekWrap = el('section');
+    weekWrap.appendChild(text('h2', 'section-label', 'Last 7 days'));
+    weekWrap.appendChild(weekNode(home.week, nowMs()));
+    view.appendChild(weekWrap);
+
+    // Most missed words: the five words mistyped most often in the last 20
+    // runs, races and practice alike.
+    const missWrap = el('section');
+    missWrap.appendChild(text('h2', 'section-label', 'Most missed words'));
+    missWrap.appendChild(missedWordsNode(home.missedWords));
+    view.appendChild(missWrap);
 
     // Your races.
     const listWrap = el('section');
@@ -350,6 +430,69 @@
     return cell;
   }
 
+  // The Last 7 days chart: one row per local day, today first, drawn like a
+  // small version of the track. The longest day's bar is full width, every
+  // bar starts from zero, and a day you did not type shows a dash. All text:
+  // the day name and the figure carry the information without the colour.
+  function weekNode(week, nowMs) {
+    const days = Array.from({ length: 7 }, () => []);
+    const dayStart = new Date(nowMs);
+    dayStart.setHours(0, 0, 0, 0);
+    for (const item of week || []) {
+      const d = new Date(item.finishedAt);
+      if (isNaN(d)) continue;
+      d.setHours(0, 0, 0, 0);
+      const at = Math.round((dayStart - d) / 86400000);
+      if (at >= 0 && at < 7) days[at].push(item.wpm);
+    }
+    const values = days.map((arr) => arr.length
+      ? Math.round(arr.reduce((s, w) => s + w, 0) / arr.length)
+      : null);
+    if (!values.some((v) => v != null)) {
+      const empty = el('div', 'state-empty rounded-xl border border-line bg-surface');
+      empty.appendChild(text('p', 'text-body font-medium', 'No races in the last 7 days.'));
+      empty.appendChild(text('p', 'text-small text-muted', "Each day's average speed shows here."));
+      return empty;
+    }
+    const max = Math.max(...values.filter((v) => v != null));
+    const list = el('ul', 'week');
+    for (let at = 0; at < 7; at++) {
+      const label = at === 0 ? 'Today' : at === 1 ? 'Yesterday'
+        : new Date(dayStart.getTime() - at * 86400000).toLocaleDateString([], { weekday: 'long' });
+      const row = el('li', 'week-row');
+      row.appendChild(text('span', 'week-day', label));
+      const bar = el('span', 'week-bar');
+      if (values[at] != null) {
+        const fill = el('span', 'week-fill');
+        fill.style.width = Math.round((values[at] / max) * 100) + '%';
+        bar.appendChild(fill);
+      }
+      row.appendChild(bar);
+      row.appendChild(text('span', 'week-fig' + (values[at] != null ? '' : ' text-muted'),
+        values[at] != null ? values[at] + ' wpm' : '–'));
+      list.appendChild(row);
+    }
+    return list;
+  }
+
+  function missedWordsNode(words) {
+    if (!words || !words.length) {
+      const empty = el('div', 'state-empty rounded-xl border border-line bg-surface');
+      empty.appendChild(text('p', 'text-body font-medium', 'No missed words yet.'));
+      empty.appendChild(text('p', 'text-small text-muted', 'Words you mistype show here after a race.'));
+      return empty;
+    }
+    const list = el('ul', 'list');
+    for (const w of words) {
+      const row = el('li', 'list-row');
+      row.appendChild(text('span', 'min-w-0 flex-1 font-mono text-body', w.word));
+      row.appendChild(text('span', 'text-small text-muted',
+        w.count === 1 ? 'once' : w.count + ' times'));
+      list.appendChild(row);
+    }
+    return list;
+  }
+
   // ── Race view ────────────────────────────────────────────────────────────
 
   // Local typing state, kept between polls so the page never waits a second
@@ -365,6 +508,9 @@
     finishedLocally: false,
     lastValue: '',
     lastPostAt: 0,
+    missed: [], // normalized words with a wrong letter, one entry per miss
+    missedHere: false, // the current word already counted
+    language: null, // the race's language, for the passage's lang attribute
   };
 
   let raceTimer = null; // 1 s poll
@@ -382,6 +528,7 @@
       raceId, kind,
       passage: '', committed: 0, keystrokes: 0, correctKeys: 0,
       startedAt: null, finishedLocally: false, lastValue: '', lastPostAt: 0,
+      missed: [], missedHere: false, language: null,
     });
     pollRace(raceId);
     raceTimer = setInterval(() => pollRace(raceId), 1000);
@@ -436,7 +583,10 @@
     const head = el('div', 'flex min-h-11 items-center justify-between');
     const headMain = el('div');
     headMain.appendChild(text('h2', 'text-heading', isPractice ? 'Practice' : 'Race'));
+    // What everyone in the race is typing, e.g. "Quotes in Bahasa Indonesia".
+    const textLabel = textChoiceLabel(race);
     headMain.appendChild(text('p', 'text-small text-muted',
+      (textLabel ? textLabel + ' · ' : '') +
       race.entries.length + (race.entries.length === 1 ? ' racer' : ' racers') +
       (me && race.entries.length > 1 ? ' · you are ' + ordinal(myPlace).toLowerCase() : '')));
     head.appendChild(headMain);
@@ -496,12 +646,14 @@
       renderWaiting(view, race, total);
       if (phase === 'racing') {
         typing.passage = typing.passage || race.passage || '';
+        if (!typing.language) typing.language = race.language || null;
       }
       return;
     }
 
     if (!race.passage) return; // still waiting for the server's passage
     typing.passage = race.passage;
+    typing.language = race.language || null;
     renderTypingArea(view, race, phase);
   }
 
@@ -524,6 +676,7 @@
       card.id = 'passage-card';
       const passage = el('p', 'passage');
       passage.id = 'passage';
+      if (typing.language) passage.setAttribute('lang', typing.language);
       card.appendChild(passage);
       view.appendChild(card);
     }
@@ -611,10 +764,17 @@
     typing.lastValue = value;
 
     const st = Typing.typingState(typing.passage, typing.committed, value);
+    // A wrong letter in the current word counts the word as missed, once per
+    // occurrence in the passage, even if it is fixed with backspace after.
+    if (st.wrong && !typing.missedHere) {
+      typing.missed.push(Typing.normalizeWord(Typing.wordAt(typing.passage, typing.committed)));
+      typing.missedHere = true;
+    }
     if (st.wordComplete) {
       typing.committed += value.length;
       field.value = '';
       typing.lastValue = '';
+      typing.missedHere = false;
       if (st.done) {
         renderPassage();
         finishLocalTyping();
@@ -662,6 +822,7 @@
           progress: typing.finishedLocally ? typing.passage.length : progress,
           keystrokes: typing.keystrokes,
           correctKeys: typing.correctKeys,
+          missedWords: typing.missed,
         }),
       });
       if (body && body.race && typing.raceId === raceId) {
@@ -840,7 +1001,12 @@
     },
     async start(raceId) {
       try {
-        const r = await api('/api/races/' + raceId + '/start', { method: 'POST' });
+        // Your pick decides the text for everyone in this race.
+        const r = await api('/api/races/' + raceId + '/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ language: textChoice.language, category: textChoice.category }),
+        });
         stopHomeTimer();
         enterRace(raceId, 'race');
       } catch (err) {
@@ -851,7 +1017,11 @@
     },
     async practice() {
       try {
-        const r = await api('/api/practice', { method: 'POST' });
+        const r = await api('/api/practice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ language: textChoice.language, category: textChoice.category }),
+        });
         stopHomeTimer();
         enterRace(r.raceId, 'practice');
       } catch (err) {

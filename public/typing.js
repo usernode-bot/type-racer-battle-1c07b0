@@ -39,5 +39,25 @@
     return { correct, wrong, wordComplete, done };
   }
 
-  return { typingState };
+  // The passage word that contains character `index` (words split on
+  // spaces): the word the racer is typing right now, used to record which
+  // words get mistyped.
+  function wordAt(passage, index) {
+    const s = String(passage);
+    if (!(index >= 0) || index >= s.length) return '';
+    let start = index;
+    while (start > 0 && s[start - 1] !== ' ') start--;
+    let end = index;
+    while (end < s.length && s[end] !== ' ') end++;
+    return s.slice(start, end);
+  }
+
+  // A word as it is counted in the missed-words stats: lowercased, with
+  // trailing commas and full stops stripped. Inner dots survive, so a code
+  // name like item.price stays one whole word.
+  function normalizeWord(w) {
+    return String(w == null ? '' : w).toLowerCase().replace(/[,.]+$/, '');
+  }
+
+  return { typingState, wordAt, normalizeWord };
 });
