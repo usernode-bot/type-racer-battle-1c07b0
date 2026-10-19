@@ -63,16 +63,24 @@
   // Whole literals so the compiler keeps them; chosen by lane % 6.
   const CAR_CLASSES = ['text-car-1', 'text-car-2', 'text-car-3', 'text-car-4', 'text-car-5', 'text-car-6'];
 
+  // The three Lawan Bot levels (mirrors lib/bots.js, which the client cannot
+  // require): the key the API takes, the label and the speed to advertise.
+  const BOT_LEVELS = [
+    { key: 'santai', label: 'Santai', about: 30 },
+    { key: 'sedang', label: 'Sedang', about: 50 },
+    { key: 'ngebut', label: 'Ngebut', about: 80 },
+  ];
+
   const STOPWATCH_SVG =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="14" r="7"/><path d="M12 14V10.5M10 3h4M12 3v4"/></svg>';
   const FLAG_SVG =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4"/><path d="M5 4h13l-2 4.5 2 4.5H5"/><path d="M9 4v9M13 4v9M5 8.5h12"/></svg>';
 
-  function carNode(lane) {
+  function carNode(lane, ghost) {
     const wrap = document.createElement('span');
     wrap.innerHTML = CAR_SVG;
     const svg = wrap.firstChild;
-    svg.setAttribute('class', 'car ' + CAR_CLASSES[((lane % 6) + 6) % 6]);
+    svg.setAttribute('class', 'car' + (ghost ? ' car-ghost' : '') + ' ' + CAR_CLASSES[((lane % 6) + 6) % 6]);
     return svg;
   }
 
@@ -88,7 +96,7 @@
       lane.appendChild(text('span', 'lane-label', e.isYou ? 'You' : e.username));
       const run = el('div', 'lane-run');
       if (opts.withCars) {
-        const car = carNode(e.lane);
+        const car = carNode(e.lane, opts.ghost && e.human === false);
         car.style.left = carLeft(e.progress, opts.total);
         run.appendChild(car);
       }
@@ -135,6 +143,24 @@
     if (place === 2) return '2nd';
     if (place === 3) return '3rd';
     return place + 'th';
+  }
+
+  function raceHeading(kind) {
+    if (kind === 'practice') return 'Practice';
+    if (kind === 'bot') return 'Lawan Bot';
+    if (kind === 'ghost') return 'Ghost';
+    return 'Race';
+  }
+
+  // The first line of a "Your races" row.
+  function recentLabel(r) {
+    if (r.kind === 'practice') return 'Practice';
+    if (r.kind === 'bot') {
+      const lv = BOT_LEVELS.find((l) => l.key === r.level);
+      return 'Lawan Bot ' + (lv ? lv.label : '') + ', ' + ordinal(r.place) + ' of ' + r.fieldSize;
+    }
+    if (r.kind === 'ghost') return 'Ghost, ' + ordinal(r.place) + ' of ' + r.fieldSize;
+    return ordinal(r.place) + ' of ' + r.fieldSize;
   }
 
   function formatWhen(iso, nowMs) {
@@ -291,6 +317,37 @@
     practice.addEventListener('click', actions.practice);
     view.appendChild(practice);
 
+    // Race your ghost: a replay of your best finished run, at its own speed.
+    // Until one exists the button waits, greyed out.
+    if (home.ghost && home.ghost.wpm != null) {
+      const ghost = el('button', 'btn-secondary w-full');
+      ghost.appendChild(document.createTextNode('Race your ghost'));
+      ghost.appendChild(text('span', 'font-mono text-small text-muted', home.ghost.wpm + ' wpm'));
+      ghost.addEventListener('click', () => actions.ghostRace());
+      view.appendChild(ghost);
+    } else {
+      const ghost = el('button', 'btn-secondary w-full');
+      ghost.textContent = 'Race your ghost';
+      ghost.disabled = true;
+      view.appendChild(ghost);
+      view.appendChild(text('p', 'text-center text-small text-muted',
+        'Finish a race to make your ghost.'));
+    }
+
+    // Lawan Bot: three made-up racers at the speed you pick.
+    const bots = el('section');
+    bots.appendChild(text('h2', 'section-label', 'Lawan Bot'));
+    const levels = el('div', 'grid grid-cols-3 gap-2');
+    for (const lv of BOT_LEVELS) {
+      const btn = el('button', 'btn-secondary flex-col gap-0.5 px-1 py-1 text-center');
+      btn.appendChild(text('span', null, lv.label));
+      btn.appendChild(text('span', 'font-mono text-small text-muted', 'about ' + lv.about + ' wpm'));
+      btn.addEventListener('click', () => actions.botRace(lv.key));
+      levels.appendChild(btn);
+    }
+    bots.appendChild(levels);
+    view.appendChild(bots);
+
     // Your stats: best speed, average accuracy, wins. Practice runs land in
     // your races but never in these cells.
     const stats = home.stats;
@@ -299,7 +356,7 @@
     const cells = el('div', 'stats');
     // No race yet: '–' for the speed figures (no data, not a failing score);
     // the win count still reads 0 and wins of 0.
-    const raced = stats.races > 0;
+    const raced = stats.runs > 0;
     cells.appendChild(statCell(raced ? String(stats.bestWpm) : '–', 'best wpm', true, !raced));
     cells.appendChild(statCell(raced ? stats.avgAccuracy + '%' : '–', 'accuracy', true, !raced));
     cells.appendChild(statCell(String(stats.wins), 'wins of ' + stats.races, false));
@@ -321,8 +378,7 @@
         const row = el('li', 'list-row');
         row.appendChild(placeBadge(r));
         const main = el('div', 'min-w-0 flex-1');
-        main.appendChild(text('p', 'text-body',
-          r.kind === 'practice' ? 'Practice' : ordinal(r.place) + ' of ' + r.fieldSize));
+        main.appendChild(text('p', 'text-body', recentLabel(r)));
         main.appendChild(text('p', 'text-small text-muted', formatWhen(r.finishedAt)));
         row.appendChild(main);
         const end = el('div', 'text-right');
@@ -435,7 +491,7 @@
     const myPlace = me ? ranked.indexOf(me) + 1 : 0;
     const head = el('div', 'flex min-h-11 items-center justify-between');
     const headMain = el('div');
-    headMain.appendChild(text('h2', 'text-heading', isPractice ? 'Practice' : 'Race'));
+    headMain.appendChild(text('h2', 'text-heading', raceHeading(race.kind)));
     headMain.appendChild(text('p', 'text-small text-muted',
       race.entries.length + (race.entries.length === 1 ? ' racer' : ' racers') +
       (me && race.entries.length > 1 ? ' · you are ' + ordinal(myPlace).toLowerCase() : '')));
@@ -465,8 +521,8 @@
     const total = race.total || 0;
     let track = view.querySelector('.track');
     if (!track || track.childElementCount !== race.entries.length) {
-      if (track) track.replaceWith(trackNode(race.entries, { withCars: true, thin: race.entries.length >= 9, total }));
-      else view.appendChild(trackNode(race.entries, { withCars: true, thin: race.entries.length >= 9, total }));
+      if (track) track.replaceWith(trackNode(race.entries, { withCars: true, thin: race.entries.length >= 9, total, ghost: race.kind === 'ghost' }));
+      else view.appendChild(trackNode(race.entries, { withCars: true, thin: race.entries.length >= 9, total, ghost: race.kind === 'ghost' }));
       track = view.querySelector('.track');
     }
     if (me) {
@@ -759,8 +815,22 @@
 
     const again = el('button', 'btn-primary w-full');
     again.textContent = isPractice ? 'Practice again' : 'Race again';
-    again.addEventListener('click', () => actions.practiceAgain(isPractice));
+    again.addEventListener('click', () => {
+      if (race.kind === 'bot') actions.botRace(race.level);
+      else if (race.kind === 'ghost') actions.ghostRace(race.id);
+      else actions.practiceAgain(isPractice);
+    });
     results.appendChild(again);
+
+    // After a race someone else won: challenge how the winner typed it.
+    const winner = race.entries.find((e) => e.place === 1);
+    if (race.kind === 'race' && winner && winner.human && !winner.isYou && !winner.outOfTime) {
+      const ghost = el('button', 'btn-secondary w-full');
+      ghost.textContent = "Race " + winner.username + "'s ghost";
+      ghost.addEventListener('click', () => actions.ghostRace(race.id));
+      results.appendChild(ghost);
+    }
+
     const back = el('button', 'btn-secondary w-full');
     back.textContent = 'Back to lobby';
     back.addEventListener('click', actions.backToLobby);
@@ -858,6 +928,32 @@
         toast('Could not start practice. Try again.');
       }
     },
+    async botRace(level) {
+      try {
+        const r = await api('/api/bot-race', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ level }),
+        });
+        stopHomeTimer();
+        enterRace(r.raceId, 'bot');
+      } catch (err) {
+        toastStartError(err);
+      }
+    },
+    async ghostRace(raceId) {
+      try {
+        const r = await api('/api/ghost-race', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(raceId ? { raceId } : {}),
+        });
+        stopHomeTimer();
+        enterRace(r.raceId, 'ghost');
+      } catch (err) {
+        toastStartError(err);
+      }
+    },
     async practiceAgain(isPractice) {
       if (isPractice) { this.practice(); return; }
       this.join();
@@ -879,6 +975,13 @@
     else if (err.code === 'race_full') toast('This race is full. Join the next one when it starts.');
     else if (err.code === 'in_race') toast('You are already racing.');
     else toast('Could not join the race. Try again.');
+  }
+
+  function toastStartError(err) {
+    if (err.status === 401) toast('Make an account to race.');
+    else if (err.code === 'in_race') toast('You are already racing.');
+    else if (err.code === 'no_ghost') toast('That ghost is not available.');
+    else toast('Could not start the race. Try again.');
   }
 
   // Resume polling the moment the page is visible again.

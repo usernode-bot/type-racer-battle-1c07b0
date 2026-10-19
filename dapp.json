@@ -18,6 +18,13 @@
       "expectText": "Staging demo",
       "visual": true,
       "impact": ["public/**", "server.js", "lib/**", "styles/**", "tailwind.config.js"]
+    },
+    {
+      "id": "home.demo.bots",
+      "name": "Ghost and bot controls in the demo lobby",
+      "path": "/?demo=1",
+      "expectText": "Lawan Bot",
+      "impact": ["public/**", "server.js", "lib/**", "styles/**", "tailwind.config.js"]
     }
   ],
   "governance": {
