@@ -3,7 +3,7 @@ const path = require('path');
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
 const { pickText } = require('./lib/sentences');
-const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress } = require('./lib/scoring');
+const { wpm, accuracy, placeEntries, settleDue, maxPlausibleProgress, progressStamp } = require('./lib/scoring');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -219,6 +219,12 @@ async function ensureSchema() {
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS race_entries_user
     ON race_entries (race_id, user_id) WHERE user_id IS NOT NULL`);
+  // The progress watermark, per racer per race: the seq of the last stamped
+  // progress post that was applied, and the device that sent it. Null until
+  // the first stamped post, so every new race starts unstamped and nothing
+  // carries over between races.
+  await pool.query('ALTER TABLE race_entries ADD COLUMN IF NOT EXISTS last_seq int');
+  await pool.query('ALTER TABLE race_entries ADD COLUMN IF NOT EXISTS last_client_id text');
 }
 
 // Deterministic randomness for the demo seed, so a preview reload always
@@ -768,15 +774,32 @@ app.post('/api/races/:id/progress', h(async (req, res) => {
   const newProgress = Math.min(progress, cap, len);
 
   const finished = newProgress >= len;
-  await pool.query(
+  // One atomic statement: the seq guard and the watermark write live in the
+  // same UPDATE, so two overlapping posts cannot both pass a read-then-write
+  // check. A stamped post whose seq is at or below the stored watermark —
+  // a resend or one that arrived late — updates nothing and its finish
+  // bookkeeping is skipped (the post that was applied already did it). A
+  // post with no valid seq takes the old path exactly: always applied, the
+  // watermark untouched. A valid seq from a DIFFERENT clientId is applied
+  // and takes the watermark over, so a second device is never locked out;
+  // GREATEST still keeps its car from moving backwards.
+  const stamp = progressStamp(req.body);
+  const applied = await pool.query(
     `UPDATE race_entries SET
        progress = GREATEST(progress, $1),
        keystrokes = GREATEST(keystrokes, $2),
        correct_keys = GREATEST(correct_keys, $3),
-       finished_at = CASE WHEN $4 AND finished_at IS NULL THEN $5 ELSE finished_at END
-     WHERE race_id = $6 AND user_id = $7`,
-    [newProgress, keystrokes, correctKeys, finished, now, r.id, String(req.user.id)]);
-  if (finished) {
+       finished_at = CASE WHEN $4 AND finished_at IS NULL THEN $5 ELSE finished_at END,
+       last_seq = CASE WHEN $8::int IS NULL THEN last_seq ELSE $8 END,
+       last_client_id = CASE WHEN $8::int IS NULL THEN last_client_id ELSE $9 END
+     WHERE race_id = $6 AND user_id = $7
+       AND ($8::int IS NULL
+            OR last_seq IS NULL
+            OR last_client_id IS DISTINCT FROM $9::text
+            OR last_seq < $8)`,
+    [newProgress, keystrokes, correctKeys, finished, now, r.id, String(req.user.id),
+      stamp.seq, stamp.clientId]);
+  if (applied.rowCount > 0 && finished) {
     await pool.query(
       'UPDATE races SET first_finish_at = COALESCE(first_finish_at, $1) WHERE id = $2',
       [now, r.id]);
